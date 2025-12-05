@@ -22,6 +22,7 @@ tsconfig.tsbuildinfo
 
 # Flow storage (local)
 /data/
+!data/system-prompt*.txt
 
 # Logs
 logs/
