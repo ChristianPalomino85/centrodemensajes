@@ -1635,6 +1635,45 @@ server.listen(PORT, async () => {
   const { startSalesSyncSchedule } = await import("./jobs/sales-sync-job");
   startSalesSyncSchedule();
   // ========== END SALES-WHATSAPP SYNC JOB ==========
+
+  // ========== START CLEANUP SERVICE ==========
+  // Automatic cleanup of old files (uploads, logs, temp) with proper error handling
+  const { runCleanup, getCleanupMetrics } = await import("./services/cleanup-service");
+
+  // Run cleanup every 24 hours
+  const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  let cleanupFailureCount = 0;
+  const MAX_CLEANUP_FAILURES = 5;
+
+  const runCleanupWithErrorHandling = async () => {
+    try {
+      await runCleanup();
+      cleanupFailureCount = 0; // Reset on success
+    } catch (error) {
+      cleanupFailureCount++;
+      logger.error("[Cleanup] Job failed", {
+        error: error instanceof Error ? error.message : String(error),
+        consecutiveFailures: cleanupFailureCount,
+      });
+
+      // Alert if too many consecutive failures
+      if (cleanupFailureCount >= MAX_CLEANUP_FAILURES) {
+        logger.error(`[Cleanup] ⚠️ ALERT: ${cleanupFailureCount} consecutive failures! Check disk space and permissions.`);
+      }
+    }
+  };
+
+  // Run initial cleanup after 1 minute (let server fully start)
+  setTimeout(runCleanupWithErrorHandling, 60 * 1000);
+
+  // Schedule recurring cleanup
+  setInterval(runCleanupWithErrorHandling, CLEANUP_INTERVAL_MS);
+
+  logger.info("[Cleanup] 🧹 Automatic cleanup service initialized", {
+    interval_hours: 24,
+    initial_run_in_seconds: 60,
+  });
+  // ========== END CLEANUP SERVICE ==========
 });
 
 // Export bot timeout scheduler for API access

@@ -22,6 +22,9 @@ import fs from 'fs';
 let cachedSystemPrompt: string | null = null;
 let cachedPromptMtime: number = 0;
 
+// Fallback prompt when file is not available (should match data/system-prompt-final.txt style)
+const FALLBACK_SYSTEM_PROMPT = process.env.AGENT_FALLBACK_PROMPT || 'Eres un asistente virtual útil de Azaleia Perú. Ayuda a los clientes con sus consultas sobre calzado.';
+
 /**
  * Normalize assistant text responses to avoid line-by-line outputs.
  * - Preserves line breaks so the agent can separar ideas sin guiones.
@@ -53,7 +56,7 @@ function loadSystemPrompt(): string {
     return cachedSystemPrompt;
   } catch (error) {
     console.error('[Agent] ⚠️ Could not load system prompt from file:', error);
-    return 'Eres un asistente virtual útil.';
+    return FALLBACK_SYSTEM_PROMPT;
   }
 }
 
@@ -575,7 +578,7 @@ export async function executeAgent(
             const validateResult = await executeTool(validateCall as any, validateContext);
             if (validateResult?.messages && validateResult.messages.length > 0) {
               // If tool already asked for DNI/RUC, return those messages and stop here
-              responses.push(...validateResult.messages);
+              const validationResponses: OutboundMessage[] = validateResult.messages;
               // Persist promotora flag if found
               if (validateResult.result?.found) {
                 session.variables = session.variables || {};
@@ -587,7 +590,7 @@ export async function executeAgent(
                 promotoraVerifiedForThisMessage = true;
               }
               console.log('[Agent] 🔎 Validation response sent, skipping forced transfer until user replies');
-              return { responses, shouldTransfer: false };
+              return { responses: validationResponses, shouldTransfer: false };
             }
             if (validateResult?.result?.found) {
               session.variables = session.variables || {};

@@ -5,6 +5,26 @@
  * Documentación: https://dev.1c-bitrix.ru/rest_help/
  */
 
+// Rate limiting configuration
+const MAX_QUEUE_SIZE = parseInt(process.env.BITRIX_MAX_QUEUE_SIZE || '100', 10);
+const RATE_LIMIT_INTERVAL_MS = parseInt(process.env.BITRIX_RATE_LIMIT_MS || '100', 10); // 10 req/sec for webhook
+const CACHE_TTL_MS = parseInt(process.env.BITRIX_CACHE_TTL_MS || '300000', 10); // 5 minutes default
+const CACHE_MAX_SIZE = parseInt(process.env.BITRIX_CACHE_MAX_SIZE || '1000', 10);
+
+// Request queue with atomic size tracking
+interface QueuedRequest {
+  execute: () => Promise<any>;
+  resolve: (value: any) => void;
+  reject: (error: any) => void;
+}
+
+// Cache entry with metadata
+interface CacheEntry {
+  data: any;
+  expiresAt: number;
+  entityId?: string;
+}
+
 export interface Bitrix24Config {
   webhookUrl?: string;  // URL del webhook de Bitrix24 (opcional si se usa OAuth)
   // Ejemplo: https://tu-dominio.bitrix24.com/rest/1/abc123xyz/
@@ -29,13 +49,193 @@ export interface BitrixSearchParams {
 }
 
 /**
- * Cliente de Bitrix24
+ * Cliente de Bitrix24 con rate limiting y caching
  */
 export class Bitrix24Client {
   private readonly config: Bitrix24Config;
 
+  // Rate limiting: queue with atomic size tracking (fixes race condition)
+  private requestQueue: QueuedRequest[] = [];
+  private isProcessingQueue = false;
+  private queueSizeLock = false; // Simple mutex for queue size checks
+
+  // Caching with inverse index for O(1) invalidation
+  private cache: Map<string, CacheEntry> = new Map();
+  private entityIndex: Map<string, Set<string>> = new Map(); // entityId -> Set of cache keys
+
+  // Metrics for observability
+  private metrics = {
+    cacheHits: 0,
+    cacheMisses: 0,
+    queuedRequests: 0,
+    processedRequests: 0,
+  };
+
   constructor(config: Bitrix24Config) {
     this.config = config;
+
+    // Periodic cache cleanup to prevent memory leaks
+    setInterval(() => this.cleanupCache(), 60000); // Every minute
+  }
+
+  /**
+   * Get current metrics for monitoring
+   */
+  getMetrics() {
+    return {
+      ...this.metrics,
+      cacheSize: this.cache.size,
+      queueSize: this.requestQueue.length,
+      cacheHitRate: this.metrics.cacheHits + this.metrics.cacheMisses > 0
+        ? (this.metrics.cacheHits / (this.metrics.cacheHits + this.metrics.cacheMisses) * 100).toFixed(1) + '%'
+        : 'N/A',
+    };
+  }
+
+  /**
+   * Cleanup expired cache entries
+   */
+  private cleanupCache(): void {
+    const now = Date.now();
+    const keysToDelete: string[] = [];
+
+    for (const [key, entry] of this.cache.entries()) {
+      if (entry.expiresAt < now) {
+        keysToDelete.push(key);
+        // Also remove from entity index
+        if (entry.entityId) {
+          const indexSet = this.entityIndex.get(entry.entityId);
+          if (indexSet) {
+            indexSet.delete(key);
+            if (indexSet.size === 0) {
+              this.entityIndex.delete(entry.entityId);
+            }
+          }
+        }
+      }
+    }
+
+    keysToDelete.forEach(key => this.cache.delete(key));
+
+    if (keysToDelete.length > 0) {
+      console.log(`[Bitrix24] 🧹 Cache cleanup: removed ${keysToDelete.length} expired entries`);
+    }
+  }
+
+  /**
+   * Invalidate cache entries for a specific entity (O(1) lookup)
+   */
+  private invalidateCacheForEntity(entityId: string): void {
+    const keysToInvalidate = this.entityIndex.get(entityId);
+    if (keysToInvalidate) {
+      keysToInvalidate.forEach(key => this.cache.delete(key));
+      this.entityIndex.delete(entityId);
+      console.log(`[Bitrix24] 🔄 Cache invalidated for entity ${entityId}: ${keysToInvalidate.size} entries`);
+    }
+  }
+
+  /**
+   * Add to cache with entity tracking
+   */
+  private setCache(key: string, data: any, entityId?: string): void {
+    // Enforce max cache size
+    if (this.cache.size >= CACHE_MAX_SIZE) {
+      // Remove oldest entry (first in map)
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey) {
+        const entry = this.cache.get(firstKey);
+        if (entry?.entityId) {
+          const indexSet = this.entityIndex.get(entry.entityId);
+          indexSet?.delete(firstKey);
+        }
+        this.cache.delete(firstKey);
+      }
+    }
+
+    const entry: CacheEntry = {
+      data,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      entityId,
+    };
+
+    this.cache.set(key, entry);
+
+    // Add to entity index for O(1) invalidation
+    if (entityId) {
+      if (!this.entityIndex.has(entityId)) {
+        this.entityIndex.set(entityId, new Set());
+      }
+      this.entityIndex.get(entityId)!.add(key);
+    }
+  }
+
+  /**
+   * Get from cache if valid
+   */
+  private getCache(key: string): any | null {
+    const entry = this.cache.get(key);
+    if (entry && entry.expiresAt > Date.now()) {
+      this.metrics.cacheHits++;
+      return entry.data;
+    }
+    if (entry) {
+      // Expired, clean up
+      this.cache.delete(key);
+    }
+    this.metrics.cacheMisses++;
+    return null;
+  }
+
+  /**
+   * Enqueue request with atomic size check (fixes race condition DoS)
+   */
+  private async enqueueRequest<T>(execute: () => Promise<T>): Promise<T> {
+    // Atomic check-and-increment pattern
+    while (this.queueSizeLock) {
+      await new Promise(resolve => setTimeout(resolve, 1));
+    }
+    this.queueSizeLock = true;
+
+    if (this.requestQueue.length >= MAX_QUEUE_SIZE) {
+      this.queueSizeLock = false;
+      throw new Error(`Bitrix24 rate limit: queue full (${MAX_QUEUE_SIZE} requests pending)`);
+    }
+
+    return new Promise<T>((resolve, reject) => {
+      this.requestQueue.push({ execute, resolve, reject });
+      this.metrics.queuedRequests++;
+      this.queueSizeLock = false;
+      this.processQueue();
+    });
+  }
+
+  /**
+   * Process queue with proper async handling (fixes missing await)
+   */
+  private async processQueue(): Promise<void> {
+    if (this.isProcessingQueue) return;
+    this.isProcessingQueue = true;
+
+    while (this.requestQueue.length > 0) {
+      const request = this.requestQueue.shift();
+      if (!request) break;
+
+      try {
+        // IMPORTANT: await the request execution (fixes race condition)
+        const result = await request.execute();
+        request.resolve(result);
+        this.metrics.processedRequests++;
+      } catch (error) {
+        request.reject(error);
+      }
+
+      // Rate limiting delay
+      if (this.requestQueue.length > 0) {
+        await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_INTERVAL_MS));
+      }
+    }
+
+    this.isProcessingQueue = false;
   }
 
   /**
@@ -462,8 +662,17 @@ export class Bitrix24Client {
   /**
    * Llamar a un método de la API de Bitrix24
    * Automáticamente refresca el token si expira (OAuth)
+   * Includes rate limiting via queue
    */
   async callMethod(method: string, params: Record<string, any> = {}, retryCount = 0): Promise<any> {
+    // Use rate-limited queue for all requests
+    return this.enqueueRequest(() => this.executeCallMethod(method, params, retryCount));
+  }
+
+  /**
+   * Internal method execution (called via queue)
+   */
+  private async executeCallMethod(method: string, params: Record<string, any> = {}, retryCount = 0): Promise<any> {
     let url: string;
     let headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -520,7 +729,8 @@ export class Bitrix24Client {
             console.log(`[Bitrix24] ✅ Token refrescado exitosamente, reintentando llamada...`);
 
             // Reintentar la llamada con el nuevo token (retryCount = 1)
-            return await this.callMethod(method, params, retryCount + 1);
+            // Call executeCallMethod directly to avoid double queueing
+            return await this.executeCallMethod(method, params, retryCount + 1);
           } catch (refreshError) {
             console.error(`[Bitrix24] ❌ Error al refrescar token:`, refreshError);
             throw new Error(`Token refresh failed: ${refreshError instanceof Error ? refreshError.message : String(refreshError)}`);
