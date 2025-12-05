@@ -1,0 +1,41 @@
+[Unit]
+Description=Meta Channels Microservice - WhatsApp, Instagram, Facebook
+Documentation=https://github.com/tu-usuario/flow-builder
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/flow-builder/services/meta-channels
+
+# Cargar variables de entorno
+EnvironmentFile=/opt/flow-builder/services/meta-channels/.env
+
+# Comando de inicio
+ExecStart=/usr/bin/node dist/index.js
+
+# Reinicio automático
+Restart=always
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=meta-channels
+
+# Seguridad
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/flow-builder/services/meta-channels/logs
+
+# Límites de recursos
+MemoryMax=512M
+TasksMax=100
+
+[Install]
+WantedBy=multi-user.target
