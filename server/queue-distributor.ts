@@ -147,20 +147,10 @@ export class QueueDistributor {
    */
   private async distributeQueue(queueId: string, queueName: string, distributionMode: string): Promise<void> {
     try {
-      // 1. Obtener chats en cola sin asignar
-      // ✅ USAR FUNCIÓN COMPARTIDA: canBeAutoAssigned() desde /shared/conversation-rules.ts
-      // CRITICAL: NO asignar conversaciones que tienen bot activo o ya tienen asesor
-      const chatsInQueue = await crmDb.listConversations();
-      const unassignedChats = chatsInQueue.filter(
-        conv => conv.queueId === queueId &&
-                canBeAutoAssigned({
-                  status: conv.status,
-                  assignedTo: conv.assignedTo,
-                  botFlowId: conv.botFlowId,
-                  queueId: conv.queueId,
-                  campaignId: null,
-                })
-      );
+      // 1. Obtener chats en cola sin asignar (OPTIMIZADO)
+      // Usamos listQueuedConversations que filtra por DB (status=active, queueId=X, assignedTo=NULL)
+      // Esto reduce la carga de memoria dramáticamente
+      const unassignedChats = await crmDb.listQueuedConversations(queueId);
 
       if (unassignedChats.length === 0) {
         return; // No hay chats que distribuir

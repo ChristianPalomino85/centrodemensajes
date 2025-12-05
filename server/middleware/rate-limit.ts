@@ -6,7 +6,7 @@ import rateLimit from "express-rate-limit";
  */
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  max: 10, // Limit each IP to 10 requests per windowMs (Increased slightly for team use)
   message: {
     error: "Too many authentication attempts. Please try again later.",
   },
@@ -22,7 +22,7 @@ export const authLimiter = rateLimit({
  */
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 200, // Limit each IP to 200 requests per windowMs (Increased for active dashboards)
   message: {
     error: "Too many requests from this IP. Please try again later.",
   },
@@ -32,22 +32,17 @@ export const apiLimiter = rateLimit({
 
 /**
  * Rate limiter for WhatsApp webhook endpoint
- * More lenient as it receives legitimate traffic from Meta
+ * HIGH CAPACITY for Meta traffic bursts
  */
 export const webhookLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 60, // Limit to 60 requests per minute (1 per second average)
+  max: 3000, // Limit to 3000 requests per minute (~50 req/sec) to handle massive bursts
   message: {
     error: "Webhook rate limit exceeded.",
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Skip rate limiting based on custom logic if needed
-  skip: (req) => {
-    // Optionally, you could skip rate limiting for verified Meta requests
-    // by checking specific headers or IPs
-    return false;
-  },
+  // Trust Meta IPs implicitly if possible (requires proxy setup)
 });
 
 /**
@@ -56,7 +51,7 @@ export const webhookLimiter = rateLimit({
  */
 export const flowLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // Limit to 30 flow operations per 15 minutes
+  max: 50, // Limit to 50 flow operations per 15 minutes
   message: {
     error: "Too many flow operations. Please try again later.",
   },
@@ -71,7 +66,7 @@ export const flowLimiter = rateLimit({
  */
 export const metricsLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 500, // Limit to 500 requests per minute (much higher for internal dashboards)
+  max: 1000, // Limit to 1000 requests per minute (Support ~100 active users polling every 6s)
   message: {
     error: "Metrics rate limit exceeded. Please slow down.",
   },
