@@ -47,9 +47,9 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_KEY }}
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
           source: "dist/*"
           target: "/var/www/flow-builder"
           strip_components: 1
@@ -58,20 +58,20 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_KEY }}
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
           source: "server/*,src/*,package.json,tsconfig.server.json"
-          target: "${{ secrets.VPS_APP_PATH }}"
+          target: "/opt/flow-builder"
           rm: false
 
       - name: Deploy Backend & Reload Services
         if: github.ref == 'refs/heads/main'
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_KEY }}
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
           script: |
             # Fix frontend permissions
             chown -R www-data:www-data /var/www/flow-builder
@@ -79,7 +79,7 @@ jobs:
             find /var/www/flow-builder -type f -exec chmod 644 {} \;
 
             # Deploy backend
-            cd ${{ secrets.VPS_APP_PATH }}
+            cd /opt/flow-builder
             npm install --production=false
 
             # Restart PM2 process using ecosystem config
