@@ -205,7 +205,7 @@ async function syncToBitrix(message: UnifiedMessage): Promise<void> {
  */
 async function notifyFlowBuilder(message: UnifiedMessage): Promise<void> {
   try {
-    const flowBuilderUrl = process.env.FLOW_BUILDER_URL || 'http://localhost:3001';
+    const flowBuilderUrl = process.env.FLOW_BUILDER_URL || 'http://localhost:3000';
 
     const response = await fetch(`${flowBuilderUrl}/api/external/incoming-message`, {
       method: 'POST',

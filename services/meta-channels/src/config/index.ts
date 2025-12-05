@@ -11,7 +11,7 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 export const config: ServiceConfig = {
   port: parseInt(process.env.META_CHANNELS_PORT || '3005', 10),
-  flowBuilderUrl: process.env.FLOW_BUILDER_URL || 'http://localhost:3001',
+  flowBuilderUrl: process.env.FLOW_BUILDER_URL || 'http://localhost:3000',
 
   channels: {
     whatsapp: {
