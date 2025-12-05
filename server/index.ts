@@ -1635,6 +1635,17 @@ server.listen(PORT, async () => {
   const { startSalesSyncSchedule } = await import("./jobs/sales-sync-job");
   startSalesSyncSchedule();
   // ========== END SALES-WHATSAPP SYNC JOB ==========
+
+  // ========== START CLEANUP JOB (Every 24h) ==========
+  const { cleanupService } = await import("./services/cleanup-service");
+  setInterval(() => {
+    cleanupService.runCleanup().catch(err => console.error('[Cleanup Job] Failed:', err));
+  }, 24 * 60 * 60 * 1000); // 24 hours
+  // Run once on startup after 1 minute
+  setTimeout(() => {
+    cleanupService.runCleanup().catch(err => console.error('[Cleanup Job] Startup failed:', err));
+  }, 60 * 1000);
+  // ========== END CLEANUP JOB ==========
 });
 
 // Export bot timeout scheduler for API access
