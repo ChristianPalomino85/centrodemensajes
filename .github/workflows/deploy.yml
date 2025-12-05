@@ -3,12 +3,10 @@ name: Deploy Flow Builder
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,52 +18,13 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Set npm registry to public
-        run: |
-          npm config set registry https://registry.npmjs.org/
-
-      - name: Install deps (ci if lockfile, else install)
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
-
-      - name: Tests (best-effort)
-        run: |
-          if npm run | grep -q "test:ci"; then
-            npm run test:ci
-          else
-            echo "No test:ci script, skipping"
-          fi
+      - name: Install dependencies
+        run: npm ci || npm install
 
       - name: Build Frontend
         run: npm run build
 
-      - name: Upload Frontend (dist) to VPS
-        if: github.ref == 'refs/heads/main'
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          source: "dist/*"
-          target: "/var/www/flow-builder"
-          strip_components: 1
-
-      - name: Upload Backend to VPS
-        if: github.ref == 'refs/heads/main'
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          source: "server/*,src/*,package.json,tsconfig.server.json"
-          target: "/opt/flow-builder"
-          rm: false
-
-      - name: Deploy Backend & Reload Services
+      - name: Deploy to VPS
         if: github.ref == 'refs/heads/main'
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -73,18 +32,9 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            # Fix frontend permissions
-            chown -R www-data:www-data /var/www/flow-builder
-            find /var/www/flow-builder -type d -exec chmod 755 {} \;
-            find /var/www/flow-builder -type f -exec chmod 644 {} \;
-
-            # Deploy backend
             cd /opt/flow-builder
-            npm install --production=false
-
-            # Restart PM2 process using ecosystem config
+            git pull origin main
+            npm install
+            npm run build
             pm2 restart ecosystem.config.cjs
             pm2 save
-
-            # Reload nginx
-            nginx -t && systemctl reload nginx
