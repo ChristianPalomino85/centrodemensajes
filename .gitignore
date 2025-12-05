@@ -1,90 +1,51 @@
+# Dependencias (se instalan con npm install)
 node_modules/
+
+# Build output (se genera con npm run build)
 dist/
 build/
-package-lock.json
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-coverage/
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-tsconfig.tsbuildinfo
 
-# Environment Variables
+# Credenciales y secretos (NUNCA subir)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Flow storage (local)
-/data/
-!data/system-prompt*.txt
-
-# Logs
-logs/
-*.log
-
-# Backups
-backups/
-migration_backup/
-*.dump
-*.tar.gz
-*.sql
-*.backup
-
-# Secrets
-server/.secrets/
+.env.*
 *.pem
 *.key
 *.crt
+server/.secrets/
 
-# Runtime
-*.pid
-.git.backup.*
+# Logs locales
+logs/
+*.log
 
-# Temporary files
+# Backups locales (muy pesados)
+backups/
+*.dump
+*.tar.gz
+*.sql.gz
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Cache y temporales
+*.tmp
 tmp/
 temp/
-*.tmp
-
-# Python virtual environments
-venv/
-venv-*/
 __pycache__/
 *.pyc
+venv/
+venv-*/
+coverage/
+tsconfig.tsbuildinfo
 
-# Temporary analysis and reports
-*ANALISIS*.txt
-*ANALISIS*.md
-*REPORTE*.md
-*RESUMEN*.txt
-*FIXES-*.md
-*AUDIT*.txt
-*DIAGNOSTICO*.md
-*INFORME*.md
-*PROPUESTA*.md
-config-validation-report.txt
-mensajes-perdidos-reporte.txt
-clientes-afectados.json
+# Archivos de datos de sesión (no el system-prompt)
+data/sessions/
+data/flows/
+data/conversations/
+data/*.json
+!data/system-prompt*.txt
 
-# Temporary scripts (analysis, fixes, diagnostics)
-analyze-*.ts
-diagnose-*.ts
-fix-*.ts
-sync-*.ts
-test-*.ts
-!tests/**/*.ts
-
-# Screenshots and captures
+# Capturas de pantalla
 Capturas/
 screenshots/
-*.png
-*.jpg
-*.jpeg
-!public/**/*.png
-!public/**/*.jpg
-!public/**/*.jpeg
