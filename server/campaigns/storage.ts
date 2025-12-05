@@ -145,6 +145,9 @@ export class CampaignStorage {
     // Apply extra data
     if (extraData) {
       Object.assign(detail, extraData);
+      if (extraData.messageId && !detail.messageId) {
+        detail.messageId = extraData.messageId;
+      }
     }
 
     // Update counters

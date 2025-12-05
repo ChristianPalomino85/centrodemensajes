@@ -5,7 +5,6 @@
 import { Pool } from 'pg';
 import { sendTemplateMessage } from '../../src/api/whatsapp-sender';
 import { crmDb } from '../crm/db-postgres';
-import { adminDb } from '../admin-db';
 
 const pool = new Pool({
   user: process.env.POSTGRES_USER || 'whatsapp_user',

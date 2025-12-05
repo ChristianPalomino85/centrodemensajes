@@ -6,6 +6,14 @@
 export type AIProvider = 'openai' | 'anthropic' | 'ollama' | 'gemini';
 
 export type OpenAIModel =
+  // GPT-5 family (August 2025+)
+  | 'gpt-5'
+  | 'gpt-5-mini'
+  | 'gpt-5-nano'
+  | 'gpt-5.1'
+  | 'gpt-5.1-mini'
+  | 'gpt-5.1-nano'
+  // GPT-4 family
   | 'gpt-4-turbo'
   | 'gpt-4'
   | 'gpt-4o'

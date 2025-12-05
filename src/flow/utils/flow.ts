@@ -852,7 +852,9 @@ export type ConnectionCreationKind =
   | 'message'
   | 'buttons'
   | 'question'
+  | 'condition'
   | 'validation'
+  | 'validation_bitrix'
   | 'attachment'
   | 'webhook_out'
   | 'webhook_in'
@@ -863,6 +865,8 @@ export type ConnectionCreationKind =
   | 'ia_rag'
   | 'ia_agent'
   | 'tool'
+  | 'bitrix_crm'
+  | 'bitrix_create'
   | 'end';
 
 export const STRICTEST_LIMIT = CHANNEL_BUTTON_LIMITS.reduce(
@@ -907,4 +911,3 @@ function sanitizeBitrixConfig(
     fieldsToCheck: safeFields,
   };
 }
-

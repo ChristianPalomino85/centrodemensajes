@@ -328,7 +328,7 @@ export function CampaignMetrics() {
                     <div className="flex gap-4">
                       {/* Media Preview Section */}
                       {hasMedia && (
-                        <div className="w-32 shrink-0 bg-slate-900 flex items-center justify-center">
+                        <div className="w-32 h-48 shrink-0 bg-slate-900 flex items-center justify-center">
                           {stat.referral_image_url && (
                             <img
                               src={stat.referral_image_url}

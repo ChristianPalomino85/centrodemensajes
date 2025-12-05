@@ -58,13 +58,25 @@ __pycache__/
 
 # Temporary analysis and reports
 *ANALISIS*.txt
+*ANALISIS*.md
 *REPORTE*.md
 *RESUMEN*.txt
 *FIXES-*.md
 *AUDIT*.txt
+*DIAGNOSTICO*.md
+*INFORME*.md
+*PROPUESTA*.md
 config-validation-report.txt
 mensajes-perdidos-reporte.txt
 clientes-afectados.json
+
+# Temporary scripts (analysis, fixes, diagnostics)
+analyze-*.ts
+diagnose-*.ts
+fix-*.ts
+sync-*.ts
+test-*.ts
+!tests/**/*.ts
 
 # Screenshots and captures
 Capturas/

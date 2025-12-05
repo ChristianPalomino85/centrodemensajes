@@ -32,6 +32,8 @@ export interface AgentFile {
     [key: string]: any;
   };
   enabled: boolean;
+  priority: number; // 1 = highest (current/active catalogs), 2 = normal, 3 = low (old/archive)
+  isCurrentCatalog: boolean; // Flag for current/active catalogs that should be searched first
   createdAt: string;
   updatedAt: string;
 }
@@ -147,6 +149,8 @@ router.post("/", requireAuth, async (req, res) => {
       tags: tags || [],
       metadata: metadata || {},
       enabled: enabled !== false, // Default to true
+      priority: req.body.priority || 2, // Default to normal priority
+      isCurrentCatalog: req.body.isCurrentCatalog || false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -154,7 +158,7 @@ router.post("/", requireAuth, async (req, res) => {
     config.files.push(newFile);
     await writeFilesConfig(config);
 
-    console.log(`[IA Agent Files] Created file: ${newFile.name} (${newFile.id})`);
+    console.log(`[IA Agent Files] Created file: ${newFile.name} (${newFile.id}) - Priority: ${newFile.priority}, Current: ${newFile.isCurrentCatalog}`);
     res.json(newFile);
   } catch (error) {
     console.error("[IA Agent Files] Error creating file:", error);
@@ -247,6 +251,97 @@ router.post("/:id/toggle", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("[IA Agent Files] Error toggling file:", error);
     res.status(500).json({ error: "Failed to toggle file" });
+  }
+});
+
+/**
+ * POST /api/ia-agent-files/batch
+ * Create multiple file entries at once
+ */
+router.post("/batch", requireAuth, async (req, res) => {
+  try {
+    const { files: newFiles } = req.body;
+
+    if (!Array.isArray(newFiles) || newFiles.length === 0) {
+      res.status(400).json({ error: "No files provided" });
+      return;
+    }
+
+    const config = await readFilesConfig();
+    const createdFiles: AgentFile[] = [];
+
+    for (const fileData of newFiles) {
+      const { name, description, category, url, fileName, mimeType, size, tags, metadata, enabled, priority, isCurrentCatalog } = fileData;
+
+      // Validate required fields
+      if (!name || !category || !url || !fileName) {
+        console.warn(`[IA Agent Files] Skipping file with missing fields:`, fileData);
+        continue;
+      }
+
+      const newFile: AgentFile = {
+        id: randomUUID(),
+        name,
+        description: description || '',
+        category,
+        url,
+        fileName,
+        mimeType: mimeType || 'application/pdf',
+        size: size || 0,
+        tags: tags || [],
+        metadata: metadata || {},
+        enabled: enabled !== false,
+        priority: priority || 2,
+        isCurrentCatalog: isCurrentCatalog || false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      config.files.push(newFile);
+      createdFiles.push(newFile);
+    }
+
+    await writeFilesConfig(config);
+
+    console.log(`[IA Agent Files] Batch created ${createdFiles.length} files`);
+    res.json({ success: true, files: createdFiles, count: createdFiles.length });
+  } catch (error) {
+    console.error("[IA Agent Files] Error batch creating files:", error);
+    res.status(500).json({ error: "Failed to create files" });
+  }
+});
+
+/**
+ * DELETE /api/ia-agent-files/batch
+ * Delete multiple file entries at once
+ */
+router.delete("/batch", requireAuth, async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ error: "No file IDs provided" });
+      return;
+    }
+
+    const config = await readFilesConfig();
+    const deletedFiles: AgentFile[] = [];
+
+    for (const id of ids) {
+      const fileIndex = config.files.findIndex(f => f.id === id);
+      if (fileIndex !== -1) {
+        const [deletedFile] = config.files.splice(fileIndex, 1);
+        deletedFiles.push(deletedFile);
+      }
+    }
+
+    await writeFilesConfig(config);
+
+    console.log(`[IA Agent Files] Batch deleted ${deletedFiles.length} files`);
+    res.json({ success: true, deleted: deletedFiles, count: deletedFiles.length });
+  } catch (error) {
+    console.error("[IA Agent Files] Error batch deleting files:", error);
+    res.status(500).json({ error: "Failed to delete files" });
   }
 });
 

@@ -6,6 +6,7 @@ import InvestmentControlPanel from './InvestmentControlPanel';
 import KeywordUsagePanel from './KeywordUsagePanel';
 import { CampaignsPanel } from './CampaignsPanel';
 import { AdTrackingPanel } from './AdTrackingPanel';
+import { SalesConversionsPanel } from './SalesConversionsPanel';
 import type { WhatsAppNumberAssignment } from '../flow/types';
 
 interface UnifiedMetricsPanelProps {
@@ -13,7 +14,7 @@ interface UnifiedMetricsPanelProps {
 }
 
 export function UnifiedMetricsPanel({ whatsappNumbers = [] }: UnifiedMetricsPanelProps) {
-  const [activeTab, setActiveTab] = useState<'bot' | 'advisors' | 'ai-analytics' | 'investment' | 'keywords' | 'campaigns' | 'ad-tracking'>('bot');
+  const [activeTab, setActiveTab] = useState<'bot' | 'advisors' | 'ai-analytics' | 'investment' | 'keywords' | 'campaigns' | 'ad-tracking' | 'sales-conversions'>('bot');
 
   return (
     <div className="h-full flex flex-col bg-slate-50">
@@ -91,6 +92,16 @@ export function UnifiedMetricsPanel({ whatsappNumbers = [] }: UnifiedMetricsPane
             >
               🎯 Tracking de Ads
             </button>
+            <button
+              onClick={() => setActiveTab('sales-conversions')}
+              className={`px-6 py-3 text-sm font-semibold rounded-t-lg transition-all ${
+                activeTab === 'sales-conversions'
+                  ? 'bg-gradient-to-r from-green-50 to-emerald-50 text-green-700 border-b-2 border-green-600'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              💰 Conversiones WSP→Ventas
+            </button>
           </div>
         </div>
       </div>
@@ -113,8 +124,10 @@ export function UnifiedMetricsPanel({ whatsappNumbers = [] }: UnifiedMetricsPane
           <KeywordUsagePanel />
         ) : activeTab === 'campaigns' ? (
           <CampaignsPanel />
-        ) : (
+        ) : activeTab === 'ad-tracking' ? (
           <AdTrackingPanel />
+        ) : (
+          <SalesConversionsPanel />
         )}
       </div>
     </div>

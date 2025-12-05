@@ -1,10 +1,13 @@
 import { Router } from "express";
-import path from "path";
+import * as path from "path";
+import * as multer from "multer";
+import { promises as fs } from "fs";
 import { attachmentStorage } from "../storage";
 import { crmDb } from "../db-postgres";
 
 // Security constants for file uploads (based on WhatsApp limits)
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB (WhatsApp document limit)
+const MAX_FILE_SIZE = 40 * 1024 * 1024; // 40MB per file (PDF catalogs, etc.)
+const MAX_FILES = 5; // Max files per upload request
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
   'image/png',
@@ -48,6 +51,8 @@ export function createPublicAttachmentsRouter() {
       const attachment = await crmDb.getAttachment(req.params.id);
       const filename = attachment?.filename || metadata.filename || "attachment";
 
+      // Allow cross-origin access for images/media (override helmet's default)
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
       res.setHeader("Content-Type", metadata.mime);
       res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
 
@@ -138,6 +143,108 @@ export function createAttachmentsRouter() {
     } catch (error) {
       console.error("[CRM] upload error", error);
       res.status(500).json({ error: "upload_failed" });
+    }
+  });
+
+  // Multer configuration for multipart uploads (direct file upload from forms)
+  const upload = multer.default({
+    storage: multer.diskStorage({
+      destination: async (_req, _file, cb) => {
+        try {
+          const tmpDir = path.join(process.cwd(), 'uploads', 'tmp');
+          await fs.mkdir(tmpDir, { recursive: true });
+          cb(null, tmpDir);
+        } catch (error) {
+          cb(error as Error, "");
+        }
+      },
+      filename: (_req, file, cb) => {
+        const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        cb(null, `${unique}-${file.originalname}`);
+      }
+    }),
+    limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
+    fileFilter: (_req, file, cb) => {
+      if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error(`File type not allowed: ${file.mimetype}`));
+      }
+    }
+  });
+
+  // Multipart file upload endpoint (for direct form uploads)
+  router.post("/upload-multipart", upload.array('file', MAX_FILES), async (req, res) => {
+    try {
+      const files = req.files as Express.Multer.File[] | undefined;
+
+      if (!files || files.length === 0) {
+        res.status(400).json({ error: "no_file", message: "No file provided" });
+        return;
+      }
+
+      const attachments = [];
+
+      for (const file of files) {
+        // Sanitize filename
+        const sanitizedFilename = path.basename(file.originalname).replace(/[^a-zA-Z0-9._\-\s]/g, '_');
+        if (sanitizedFilename.length === 0 || sanitizedFilename === '.' || sanitizedFilename === '..') {
+          res.status(400).json({ error: "invalid_filename", message: "Invalid filename" });
+          return;
+        }
+
+        const tmpPath = file.path;
+        const buffer = await fs.readFile(tmpPath);
+
+        try {
+          // Store the file
+          const stored = await attachmentStorage.saveBuffer({
+            buffer,
+            filename: sanitizedFilename,
+            mime: file.mimetype
+          });
+
+          // Save to database
+          const attachment = await crmDb.storeAttachment({
+            id: stored.id,
+            msgId: null,
+            filename: sanitizedFilename,
+            mime: file.mimetype,
+            size: stored.size,
+            url: stored.url,
+            thumbUrl: stored.url,
+          });
+
+          attachments.push({
+            id: attachment.id,
+            url: attachment.url,
+            filename: attachment.filename,
+            mime: attachment.mime,
+            size: attachment.size
+          });
+        } finally {
+          // Clean up temp file
+          try {
+            await fs.unlink(tmpPath);
+          } catch (cleanupError) {
+            console.error("[CRM] Failed to clean temp upload:", cleanupError);
+          }
+        }
+      }
+
+      // Maintain backward compatibility: single file returns object, multiple returns array
+      if (attachments.length === 1) {
+        res.json(attachments[0]);
+      } else {
+        res.json({ attachments });
+      }
+    } catch (error: any) {
+      console.error("[CRM] multipart upload error", error);
+      if (error.message && error.message.includes('File type not allowed')) {
+        res.status(400).json({ error: "invalid_file_type", message: error.message });
+      } else {
+        res.status(500).json({ error: "upload_failed", message: error.message || "Upload failed" });
+      }
     }
   });
 

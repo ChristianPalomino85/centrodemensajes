@@ -89,7 +89,7 @@ router.get('/status', async (req, res) => {
     });
   } catch (error) {
     console.error('[RAG Admin] Error getting status:', error);
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ message: String(error) });
   }
 });
 
@@ -102,7 +102,7 @@ router.post('/validate-api-key', async (req, res) => {
     const { apiKey } = req.body;
 
     if (!apiKey) {
-      return res.status(400).json({ valid: false, error: 'API key requerida' });
+      return res.status(400).json({ valid: false, message: 'API key requerida' });
     }
 
     // Test API key with OpenAI
@@ -130,7 +130,7 @@ router.post('/save-api-key', async (req, res) => {
     const { apiKey } = req.body;
 
     if (!apiKey) {
-      return res.status(400).json({ error: 'API key requerida' });
+      return res.status(400).json({ message: 'API key requerida' });
     }
 
     // Validate API key first
@@ -163,7 +163,7 @@ router.post('/save-api-key', async (req, res) => {
     });
   } catch (error) {
     console.error('[RAG Admin] Error saving API key:', error);
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ message: String(error) });
   }
 });
 
@@ -174,7 +174,7 @@ router.post('/save-api-key', async (req, res) => {
 router.post('/upload-pdf', upload.single('pdf'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No se recibió archivo PDF' });
+      return res.status(400).json({ message: 'No se recibió archivo PDF' });
     }
 
     const { name, description, type } = req.body;
@@ -211,7 +211,7 @@ router.post('/upload-pdf', upload.single('pdf'), async (req, res) => {
     });
   } catch (error) {
     console.error('[RAG Admin] Error uploading PDF:', error);
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ message: String(error) });
   }
 });
 
@@ -228,7 +228,7 @@ router.delete('/document/:id', async (req, res) => {
 
     const docIndex = documents.findIndex((d: any) => d.id === id);
     if (docIndex === -1) {
-      return res.status(404).json({ error: 'Documento no encontrado' });
+      return res.status(404).json({ message: 'Documento no encontrado' });
     }
 
     const doc = documents[docIndex];
@@ -247,7 +247,7 @@ router.delete('/document/:id', async (req, res) => {
     res.json({ success: true, message: 'Documento eliminado' });
   } catch (error) {
     console.error('[RAG Admin] Error deleting document:', error);
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ message: String(error) });
   }
 });
 
@@ -262,12 +262,12 @@ router.post('/index', async (req, res) => {
 
     const openaiApiKey = aiConfig?.openai?.apiKey;
     if (!openaiApiKey) {
-      return res.status(400).json({ error: 'API key de OpenAI no configurada' });
+      return res.status(400).json({ message: 'API key de OpenAI no configurada' });
     }
 
     const documents = agentConfig?.integrations?.knowledgeBase?.documents || [];
     if (documents.length === 0) {
-      return res.status(400).json({ error: 'No hay documentos para indexar' });
+      return res.status(400).json({ message: 'No hay documentos para indexar' });
     }
 
     // Load or create embeddings database
@@ -311,7 +311,7 @@ router.post('/index', async (req, res) => {
     });
   } catch (error) {
     console.error('[RAG Admin] Error during indexing:', error);
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ message: String(error) });
   }
 });
 
@@ -328,14 +328,14 @@ router.post('/reindex/:id', async (req, res) => {
 
     const openaiApiKey = aiConfig?.openai?.apiKey;
     if (!openaiApiKey) {
-      return res.status(400).json({ error: 'API key de OpenAI no configurada' });
+      return res.status(400).json({ message: 'API key de OpenAI no configurada' });
     }
 
     const documents = agentConfig?.integrations?.knowledgeBase?.documents || [];
     const doc = documents.find((d: any) => d.id === id);
 
     if (!doc) {
-      return res.status(404).json({ error: 'Documento no encontrado' });
+      return res.status(404).json({ message: 'Documento no encontrado' });
     }
 
     // Load database
@@ -361,7 +361,7 @@ router.post('/reindex/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('[RAG Admin] Error reindexing:', error);
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ message: String(error) });
   }
 });
 
@@ -383,7 +383,7 @@ router.delete('/clear-index', async (req, res) => {
     res.json({ success: true, message: 'Índice limpiado correctamente' });
   } catch (error) {
     console.error('[RAG Admin] Error clearing index:', error);
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ message: String(error) });
   }
 });
 
@@ -413,7 +413,374 @@ router.post('/toggle', async (req, res) => {
     });
   } catch (error) {
     console.error('[RAG Admin] Error toggling RAG:', error);
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ message: String(error) });
+  }
+});
+
+// ============================================
+// TRAINING ENDPOINTS - Aprendizaje de Chats
+// ============================================
+
+/**
+ * GET /api/rag-admin/training/status
+ * Get training data status
+ */
+router.get('/training/status', async (req, res) => {
+  try {
+    const dataDir = path.join(process.cwd(), 'data');
+    const kbDir = path.join(dataDir, 'knowledge-base');
+
+    // Check for training data files
+    let trainingDataExists = false;
+    let trainingDataDate = '';
+    let trainingDataSize = 0;
+    let conversationsCount = 0;
+    let messagesCount = 0;
+
+    // Check for pattern file
+    let patternsExists = false;
+    let patternsSize = 0;
+
+    // Check for fine-tuning file
+    let fineTuningExists = false;
+    let fineTuningExamples = 0;
+
+    try {
+      const files = await fs.readdir(dataDir);
+
+      // Find most recent training data file
+      const trainingFiles = files.filter(f => f.startsWith('training-data-') && f.endsWith('.json'));
+      if (trainingFiles.length > 0) {
+        const latestFile = trainingFiles.sort().reverse()[0];
+        const filePath = path.join(dataDir, latestFile);
+        const stats = await fs.stat(filePath);
+        trainingDataExists = true;
+        trainingDataDate = latestFile.replace('training-data-', '').replace('.json', '');
+        trainingDataSize = stats.size;
+
+        // Read to get counts
+        const content = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+        conversationsCount = content.length;
+        messagesCount = content.reduce((acc: number, conv: any) => acc + (conv.messages?.length || 0), 0);
+      }
+
+      // Check fine-tuning file
+      const ftFiles = files.filter(f => f.startsWith('fine-tuning-') && f.endsWith('.jsonl'));
+      if (ftFiles.length > 0) {
+        const latestFt = ftFiles.sort().reverse()[0];
+        const ftPath = path.join(dataDir, latestFt);
+        const ftContent = await fs.readFile(ftPath, 'utf-8');
+        fineTuningExists = true;
+        fineTuningExamples = ftContent.split('\n').filter(line => line.trim()).length;
+      }
+    } catch (err) {
+      // Files don't exist yet
+    }
+
+    // Check patterns file
+    try {
+      const patternsPath = path.join(kbDir, 'patrones-conversacion.md');
+      const stats = await fs.stat(patternsPath);
+      patternsExists = true;
+      patternsSize = stats.size;
+    } catch (err) {
+      // File doesn't exist
+    }
+
+    // Get chunks count for patterns
+    const dbPath = path.join(dataDir, 'embeddings-db.json');
+    let patternsChunks = 0;
+    try {
+      const database = await loadEmbeddingsDatabase(dbPath);
+      patternsChunks = database.chunks.filter(c => c.metadata.source === 'patrones-conversacion').length;
+    } catch (err) {
+      // Database doesn't exist
+    }
+
+    res.json({
+      trainingData: {
+        exists: trainingDataExists,
+        date: trainingDataDate,
+        size: trainingDataSize,
+        conversations: conversationsCount,
+        messages: messagesCount
+      },
+      patterns: {
+        exists: patternsExists,
+        size: patternsSize,
+        indexed: patternsChunks > 0,
+        chunks: patternsChunks
+      },
+      fineTuning: {
+        exists: fineTuningExists,
+        examples: fineTuningExamples
+      }
+    });
+  } catch (error) {
+    console.error('[RAG Admin] Error getting training status:', error);
+    res.status(500).json({ message: String(error) });
+  }
+});
+
+/**
+ * POST /api/rag-admin/training/export
+ * Export chats for training
+ */
+router.post('/training/export', async (req, res) => {
+  try {
+    const { days = 30, minMessages = 5 } = req.body;
+
+    console.log(`[Training] Exporting chats from last ${days} days with min ${minMessages} messages`);
+
+    // Dynamic import of pg
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      host: process.env.POSTGRES_HOST || 'localhost',
+      port: parseInt(process.env.POSTGRES_PORT || '5432'),
+      database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+      user: process.env.POSTGRES_USER || 'whatsapp_user',
+      password: process.env.POSTGRES_PASSWORD || 'azaleia_pg_2025_secure',
+    });
+
+    const cutoffTime = Date.now() - (days * 24 * 60 * 60 * 1000);
+
+    // Get conversations with enough messages
+    const convQuery = `
+      SELECT c.id, c.phone, c.category, c.status, COUNT(m.id) as msg_count
+      FROM crm_conversations c
+      JOIN crm_messages m ON m.conversation_id = c.id
+      WHERE c.last_message_at > $1
+        AND c.category NOT IN ('mass_send', 'campaign')
+      GROUP BY c.id, c.phone, c.category, c.status
+      HAVING COUNT(m.id) >= $2
+      ORDER BY COUNT(m.id) DESC
+      LIMIT 100
+    `;
+
+    const convResult = await pool.query(convQuery, [cutoffTime, minMessages]);
+
+    // System messages to filter
+    const systemPatterns = [
+      'En cola', 'Asignado automáticamente', 'aceptó la conversación',
+      'Conversación cerrada', 'Bot inició atención', 'Bot transfirió',
+      'cambió su estado', 'devuelta a la cola', 'templateName',
+      'No pude reconocer tu respuesta'
+    ];
+
+    const exports: any[] = [];
+    let totalMessages = 0;
+
+    for (const conv of convResult.rows) {
+      const msgQuery = `
+        SELECT direction, text, created_at as timestamp, sent_by
+        FROM crm_messages WHERE conversation_id = $1
+        ORDER BY created_at ASC
+      `;
+      const msgResult = await pool.query(msgQuery, [conv.id]);
+
+      const messages: any[] = [];
+      for (const msg of msgResult.rows) {
+        if (!msg.text || msg.text.trim() === '') continue;
+        if (systemPatterns.some(p => msg.text.includes(p))) continue;
+
+        const role = msg.direction === 'incoming' ? 'cliente' :
+          (msg.sent_by && msg.sent_by !== 'bot' && msg.sent_by !== 'system' ? 'asesor' : 'bot');
+
+        messages.push({
+          role,
+          content: msg.text.trim(),
+          timestamp: new Date(parseInt(msg.timestamp)).toISOString()
+        });
+      }
+
+      if (messages.length >= 3) {
+        exports.push({
+          id: conv.id,
+          phone: conv.phone.replace(/\d{4}$/, '****'),
+          category: conv.category || 'general',
+          status: conv.status,
+          total_messages: messages.length,
+          messages
+        });
+        totalMessages += messages.length;
+      }
+    }
+
+    await pool.end();
+
+    // Save training data
+    const outputPath = path.join(process.cwd(), 'data', `training-data-${new Date().toISOString().split('T')[0]}.json`);
+    await fs.writeFile(outputPath, JSON.stringify(exports, null, 2));
+
+    // Generate patterns document
+    let patternsDoc = `# PATRONES DE CONVERSACIÓN - AZALEIA PERÚ
+
+Este documento contiene patrones reales de cómo los clientes hacen pedidos y consultas.
+Generado: ${new Date().toISOString()}
+Total conversaciones analizadas: ${exports.length}
+
+## PATRONES DE INICIO DE CONVERSACIÓN
+
+Los clientes típicamente inician con:
+`;
+
+    // Analyze openings
+    const openings: Record<string, number> = {};
+    exports.forEach(conv => {
+      const first = conv.messages.find((m: any) => m.role === 'cliente');
+      if (first) {
+        const normalized = first.content.toLowerCase().trim();
+        openings[normalized] = (openings[normalized] || 0) + 1;
+      }
+    });
+
+    Object.entries(openings)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .forEach(([text, count]) => {
+        patternsDoc += `- "${text}" (${count} veces)\n`;
+      });
+
+    patternsDoc += `\n## EJEMPLOS DE CONVERSACIONES EXITOSAS\n\n`;
+
+    // Add example conversations
+    const goodConvs = exports
+      .filter(c => c.messages.length >= 6 && c.status === 'closed')
+      .slice(0, 10);
+
+    goodConvs.forEach((conv, idx) => {
+      patternsDoc += `### Ejemplo ${idx + 1} (${conv.category})\n\n`;
+      conv.messages.forEach((m: any) => {
+        const label = m.role === 'cliente' ? 'CLIENTE' : 'ASESOR';
+        patternsDoc += `**${label}:** ${m.content}\n\n`;
+      });
+      patternsDoc += `---\n\n`;
+    });
+
+    const patternsPath = path.join(process.cwd(), 'data', 'knowledge-base', 'patrones-conversacion.md');
+    await fs.writeFile(patternsPath, patternsDoc);
+
+    // Generate fine-tuning file
+    const ftExamples: any[] = [];
+    for (const conv of exports) {
+      if (conv.messages.length < 4) continue;
+
+      const example: any = {
+        messages: [{
+          role: 'system',
+          content: 'Eres un asistente de ventas de Azaleia Perú. Ayuda a los clientes con información de productos, precios y pedidos.'
+        }]
+      };
+
+      for (const msg of conv.messages) {
+        example.messages.push({
+          role: msg.role === 'cliente' ? 'user' : 'assistant',
+          content: msg.content
+        });
+      }
+
+      const hasUser = example.messages.filter((m: any) => m.role === 'user').length >= 2;
+      const hasAssistant = example.messages.filter((m: any) => m.role === 'assistant').length >= 2;
+      if (hasUser && hasAssistant) ftExamples.push(example);
+    }
+
+    const ftPath = path.join(process.cwd(), 'data', `fine-tuning-${new Date().toISOString().split('T')[0]}.jsonl`);
+    await fs.writeFile(ftPath, ftExamples.map(e => JSON.stringify(e)).join('\n'));
+
+    res.json({
+      success: true,
+      conversations: exports.length,
+      messages: totalMessages,
+      patternsGenerated: true,
+      fineTuningExamples: ftExamples.length,
+      files: {
+        trainingData: outputPath,
+        patterns: patternsPath,
+        fineTuning: ftPath
+      }
+    });
+  } catch (error) {
+    console.error('[Training] Export error:', error);
+    res.status(500).json({ message: String(error) });
+  }
+});
+
+/**
+ * POST /api/rag-admin/training/index-patterns
+ * Index conversation patterns into RAG
+ */
+router.post('/training/index-patterns', async (req, res) => {
+  try {
+    const aiConfig = await readAIConfig();
+    const openaiApiKey = aiConfig?.openai?.apiKey;
+
+    if (!openaiApiKey) {
+      return res.status(400).json({ message: 'API key de OpenAI no configurada' });
+    }
+
+    const patternsPath = path.join(process.cwd(), 'data', 'knowledge-base', 'patrones-conversacion.md');
+
+    // Check if patterns file exists
+    try {
+      await fs.access(patternsPath);
+    } catch {
+      return res.status(400).json({
+        error: 'No hay archivo de patrones. Primero exporta los chats.'
+      });
+    }
+
+    // Read patterns file
+    const content = await fs.readFile(patternsPath, 'utf-8');
+    console.log(`[Training] Indexing ${content.length} characters of patterns`);
+
+    // Split into chunks
+    const { splitIntoChunks, createEmbedding } = await import('../ai/rag-embeddings');
+    const textChunks = splitIntoChunks(content, 800, 150);
+    console.log(`[Training] Split into ${textChunks.length} chunks`);
+
+    // Load existing database
+    const dbPath = path.join(process.cwd(), 'data', 'embeddings-db.json');
+    let database = await loadEmbeddingsDatabase(dbPath);
+
+    // Remove old pattern chunks
+    const oldCount = database.chunks.length;
+    database.chunks = database.chunks.filter(c => c.metadata.source !== 'patrones-conversacion');
+    const removedCount = oldCount - database.chunks.length;
+
+    // Create embeddings for new chunks
+    const newChunks: any[] = [];
+    for (let i = 0; i < textChunks.length; i++) {
+      console.log(`[Training] Creating embedding ${i + 1}/${textChunks.length}`);
+
+      const embedding = await createEmbedding(textChunks[i], openaiApiKey);
+      newChunks.push({
+        id: `patrones-conversacion-chunk-${i}`,
+        content: textChunks[i],
+        embedding,
+        metadata: {
+          source: 'patrones-conversacion',
+          chunkIndex: i
+        }
+      });
+
+      // Small delay to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Add new chunks and save
+    database.chunks.push(...newChunks);
+    database.lastUpdated = new Date().toISOString();
+    await saveEmbeddingsDatabase(database, dbPath);
+
+    res.json({
+      success: true,
+      chunksRemoved: removedCount,
+      chunksAdded: newChunks.length,
+      totalChunks: database.chunks.length
+    });
+  } catch (error) {
+    console.error('[Training] Index patterns error:', error);
+    res.status(500).json({ message: String(error) });
   }
 });
 

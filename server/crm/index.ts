@@ -37,11 +37,14 @@ export function registerCrmModule(options: RegisterCrmOptions) {
     res.json({ ok: true, ws: status.clients >= 0, clients: status.clients });
   });
 
-  // Attachments GET endpoint - NO REQUIERE AUTENTICACIÓN (para que el bot pueda descargar archivos)
+  // Attachments GET - NO requiere auth (para que WhatsApp/bot pueda descargar)
   router.use("/attachments", createPublicAttachmentsRouter());
 
   // TODOS los demás endpoints del CRM REQUIEREN AUTENTICACIÓN
   router.use(requireAuth);
+
+  // Attachments POST (upload) - SI requiere auth
+  router.use("/attachments", createAttachmentsRouter());
 
   // Upload media endpoint - para subir imágenes a WhatsApp desde templates
   router.post("/upload-media", async (req, res) => {
@@ -94,8 +97,6 @@ export function registerCrmModule(options: RegisterCrmOptions) {
     }
   });
 
-  // Attachments POST endpoint - REQUIERE AUTENTICACIÓN
-  router.use("/attachments", createAttachmentsRouter());
   router.use("/messages", createMessagesRouter(realtime, bitrixService));
   router.use("/conversations", createConversationsRouter(realtime, bitrixService, options.flowProvider, options.botSessionStore));
   router.use("/templates", createTemplatesRouter(realtime));

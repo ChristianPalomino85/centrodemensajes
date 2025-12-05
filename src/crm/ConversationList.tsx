@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import type { Conversation, ChannelType } from "./types";
 import { getChannelColor, getNumberLabel } from "./channelColors";
 import { Avatar } from "./Avatar";
+import { AvatarWithBadge } from "./AvatarWithBadge";
 import { getConversationCategory, type ConversationCategory } from "../../shared/conversation-rules";
 // Phone search fix v2
 
@@ -105,7 +106,7 @@ const CHANNEL_COLORS: Record<ChannelType, string> = {
 
 export default function ConversationList({ conversations, selectedId, onSelect, currentUserEmail, currentUserRole }: ConversationListProps) {
   // Force cache bust v2025-11-18-13-50 - FIXED closedReason in ALL 7 calls
-  console.log('🔥 ConversationList cargado - VERSION 2025-11-18-13:50 con closedReason');
+  console.log('✅ ConversationList cargado - VERSION 2025-11-24-07:37 CON WINDOW BADGE');
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<ConversationCategory | "all">("all");
   const [filter, setFilter] = useState<FilterType>("all");
@@ -762,11 +763,11 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                     <div className="flex items-start gap-2">
                       {/* Avatar + Ticket Column */}
                       <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                        <div className="w-10 h-10 rounded-full bg-slate-300 flex items-center justify-center text-slate-600">
-                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                          </svg>
-                        </div>
+                        <AvatarWithBadge
+                          lastClientMessageAt={conv.lastClientMessageAt}
+                          avatarUrl={conv.avatarUrl}
+                          contactName={conv.contactName}
+                        />
                         <span className="text-xs font-bold bg-slate-100 px-2 py-0.5 rounded">#{conv.ticketNumber || 'N/A'}</span>
                       </div>
 
@@ -889,11 +890,11 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                     <div className="flex items-start gap-2">
                       {/* Avatar + Ticket Column */}
                       <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                        <div className="w-10 h-10 rounded-full bg-slate-300 flex items-center justify-center text-slate-600">
-                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                          </svg>
-                        </div>
+                        <AvatarWithBadge
+                          lastClientMessageAt={conv.lastClientMessageAt}
+                          avatarUrl={conv.avatarUrl}
+                          contactName={conv.contactName}
+                        />
                         <span className="text-xs font-bold bg-slate-100 px-2 py-0.5 rounded">#{conv.ticketNumber || 'N/A'}</span>
                       </div>
 
@@ -912,6 +913,16 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                               <span>📱</span>
                               <span className="font-bold text-green-600">{conv.displayNumber || 'N/A'}</span>
                             </span>
+                            {/* Show queue name when chat is in queue (no advisor assigned) */}
+                            {!conv.assignedTo && conv.queueId && (() => {
+                              const queue = queues.find(q => q.id === conv.queueId);
+                              return queue ? (
+                                <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-purple-50 border border-purple-200 rounded-lg text-xs">
+                                  <span>📋</span>
+                                  <span className="font-semibold text-purple-700">{queue.name}</span>
+                                </span>
+                              ) : null;
+                            })()}
                             {/* Show assigned advisor when showAllChats is enabled OR for admin/supervisor roles */}
                             {(showAllChats || currentUserRole === 'admin' || currentUserRole === 'supervisor' || currentUserRole === 'gerencia') && conv.assignedTo && (
                               <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs">
@@ -999,11 +1010,11 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                     <div className="flex items-start gap-2">
                       {/* Avatar + Ticket Column */}
                       <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                        <div className="w-10 h-10 rounded-full bg-slate-300 flex items-center justify-center text-slate-600">
-                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                          </svg>
-                        </div>
+                        <AvatarWithBadge
+                          lastClientMessageAt={conv.lastClientMessageAt}
+                          avatarUrl={conv.avatarUrl}
+                          contactName={conv.contactName}
+                        />
                         <span className="text-xs font-bold bg-slate-100 px-2 py-0.5 rounded">#{conv.ticketNumber || 'N/A'}</span>
                       </div>
 
@@ -1109,11 +1120,11 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                     <div className="flex items-start gap-2">
                       {/* Avatar + Ticket Column */}
                       <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                        <div className="w-10 h-10 rounded-full bg-slate-300 flex items-center justify-center text-slate-600">
-                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                          </svg>
-                        </div>
+                        <AvatarWithBadge
+                          lastClientMessageAt={conv.lastClientMessageAt}
+                          avatarUrl={conv.avatarUrl}
+                          contactName={conv.contactName}
+                        />
                         <span className="text-xs font-bold bg-slate-100 px-2 py-0.5 rounded">#{conv.ticketNumber || 'N/A'}</span>
                       </div>
 
@@ -1219,11 +1230,11 @@ export default function ConversationList({ conversations, selectedId, onSelect, 
                     <div className="flex items-start gap-2">
                       {/* Avatar + Ticket Column */}
                       <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                        <div className="w-10 h-10 rounded-full bg-slate-300 flex items-center justify-center text-slate-600">
-                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                          </svg>
-                        </div>
+                        <AvatarWithBadge
+                          lastClientMessageAt={conv.lastClientMessageAt}
+                          avatarUrl={conv.avatarUrl}
+                          contactName={conv.contactName}
+                        />
                         <span className="text-xs font-bold bg-slate-100 px-2 py-0.5 rounded">#{conv.ticketNumber || 'N/A'}</span>
                       </div>
 

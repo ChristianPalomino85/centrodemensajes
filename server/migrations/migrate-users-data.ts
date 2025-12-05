@@ -5,7 +5,6 @@
 
 import { Pool } from 'pg';
 import * as fs from 'fs';
-import * as path from 'path';
 
 const pool = new Pool({
   user: process.env.POSTGRES_USER || 'whatsapp_user',

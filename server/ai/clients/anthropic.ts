@@ -3,7 +3,7 @@
  * Handles API requests to Anthropic's messages API
  */
 
-import type { AIClient, AIRequestConfig, AIResponse, AIMessage } from '../types';
+import type { AIClient, AIRequestConfig, AIResponse } from '../types';
 
 export class AnthropicClient implements AIClient {
   private apiKey: string;

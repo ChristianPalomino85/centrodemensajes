@@ -28,8 +28,10 @@ export interface Conversation {
   contactName: string | null;
   bitrixId: string | null;
   bitrixDocument: string | null;  // Número de documento del contacto en Bitrix
+  autorizaPublicidad: string | null;  // ID del campo UF_CRM_1753421555 (Si/No/Por confirmar)
   avatarUrl: string | null;        // URL de la foto de perfil (WhatsApp o Bitrix)
   lastMessageAt: number;
+  lastClientMessageAt?: number | null;  // Timestamp del último mensaje incoming (del cliente) - para ventana 24h
   unread: number;
   status: ConversationStatus;
   closedReason: string | null;     // Reason for closing (archived, completed, timeout, etc.)

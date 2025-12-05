@@ -94,7 +94,7 @@ async function checkAndAutoCloseConversation(
 ): Promise<void> {
   try {
     // Get last outgoing message from business
-    const messages = await crmDb.getMessagesByConversation(conversationId);
+    const messages = await crmDb.getMessagesByConversationId(conversationId);
     const lastOutgoing = messages
       .filter(m => m.direction === 'outgoing')
       .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0];
@@ -177,7 +177,7 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
 
   // IMPORTANT: Extract ad referral data from WhatsApp message (Facebook/Instagram Ads tracking)
   const referral = args.message.referral;
-  const adReferralData = referral ? {
+  let adReferralData = referral ? {
     sourceUrl: referral.source_url || null,
     sourceId: referral.source_id || null,
     sourceType: referral.source_type || null,
@@ -192,6 +192,27 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
 
   if (adReferralData && adReferralData.ctwaClid) {
     logDebug(`[CRM] 📢 Ad tracking detected! Source: ${adReferralData.sourceType}, Ad ID: ${adReferralData.sourceId}, Click ID: ${adReferralData.ctwaClid}`);
+
+    // Download and store ad images locally to avoid Facebook CDN expiration
+    if (adReferralData.imageUrl) {
+      const { downloadAndStoreImage } = await import('../services/image-downloader');
+      const localImagePath = await downloadAndStoreImage(adReferralData.imageUrl);
+      if (localImagePath) {
+        logDebug(`[CRM] ✅ Downloaded ad image: ${localImagePath}`);
+        adReferralData.imageUrl = localImagePath;
+      } else {
+        logDebug(`[CRM] ⚠️ Failed to download ad image, keeping original URL`);
+      }
+    }
+
+    if (adReferralData.thumbnailUrl) {
+      const { downloadAndStoreImage } = await import('../services/image-downloader');
+      const localThumbPath = await downloadAndStoreImage(adReferralData.thumbnailUrl);
+      if (localThumbPath) {
+        logDebug(`[CRM] ✅ Downloaded ad thumbnail: ${localThumbPath}`);
+        adReferralData.thumbnailUrl = localThumbPath;
+      }
+    }
   }
 
   // Update connection with WABA ID if not already set
@@ -439,11 +460,16 @@ export async function handleIncomingWhatsAppMessage(args: HandleIncomingArgs): P
         if (contact?.ID) {
           // Encontró contacto existente, asociarlo
           await args.bitrixService.attachConversation(conversation!, contact.ID.toString());
+          // Actualizar también autorizaPublicidad desde Bitrix
+          const autorizaPublicidad = contact.UF_CRM_1753421555 || null;
+          if (autorizaPublicidad) {
+            await crmDb.updateConversationMeta(conversation!.id, { autorizaPublicidad });
+          }
           const updated = await crmDb.getConversationById(conversation.id);
           if (updated) {
             args.socketManager.emitConversationUpdate({ conversation: updated });
           }
-          console.log(`[CRM][Bitrix] Contacto existente encontrado: ${contact.ID} para ${phone}`);
+          console.log(`[CRM][Bitrix] Contacto existente encontrado: ${contact.ID} para ${phone} (autPub: ${autorizaPublicidad || 'N/A'})`);
         } else {
           // No hay contacto en Bitrix, se mostrará solo con datos de Meta (phone + profileName)
           console.log(`[CRM][Bitrix] No se encontró contacto para ${phone}. Mostrando solo datos de Meta.`);
@@ -535,8 +561,36 @@ async function translateMessage(message: WhatsAppMessage): Promise<{
         },
       };
     }
-    default:
-      return { type: "system", text: null, attachment: null };
+    case "location": {
+      // WhatsApp location message
+      const lat = (message as any).location?.latitude;
+      const lng = (message as any).location?.longitude;
+      const name = (message as any).location?.name;
+      const address = (message as any).location?.address;
+
+      let text = "📍 Ubicación compartida";
+      if (name) text += `: ${name}`;
+      else if (address) text += `: ${address}`;
+      else if (lat && lng) text += ` (${lat}, ${lng})`;
+
+      // Add Google Maps link
+      const mapsUrl = lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : null;
+      if (mapsUrl) {
+        text += `\n🗺️ Ver en Google Maps: ${mapsUrl}`;
+      }
+
+      return { type: "system", text, attachment: null };
+    }
+    case "order": {
+      // WhatsApp order/catalog message
+      const text = "🛒 Pedido de catálogo";
+      return { type: "system", text, attachment: null };
+    }
+    default: {
+      // Unknown message type - show generic message
+      const text = `⚠️ Mensaje de tipo "${message.type}" (no soportado)`;
+      return { type: "system", text, attachment: null };
+    }
   }
 }
 

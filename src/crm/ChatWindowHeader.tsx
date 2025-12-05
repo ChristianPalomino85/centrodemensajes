@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Avatar } from "./Avatar";
 import type { Conversation } from "./types";
+import QuickActionsButton from "./QuickActionsButton";
+import QuickActionsManager from "./QuickActionsManager";
 
 interface ChatWindowHeaderProps {
   conversation: Conversation;
@@ -126,6 +128,7 @@ export default function ChatWindowHeader({
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(conversation.contactName || '');
   const [savingName, setSavingName] = useState(false);
+  const [showQuickActionsManager, setShowQuickActionsManager] = useState(false);
 
   // Update edited name when conversation changes
   useEffect(() => {
@@ -253,6 +256,32 @@ export default function ChatWindowHeader({
                 </button>
               )}
 
+              {/* Publicidad Badge */}
+              {(() => {
+                const value = conversation.autorizaPublicidad;
+                const siIds = ["96420", "96130"];
+                const noIds = ["96422", "96132"];
+                if (siIds.includes(String(value))) {
+                  return (
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-300" title="✓ Autoriza publicidad">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    </span>
+                  );
+                } else if (noIds.includes(String(value))) {
+                  return (
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-600 border border-red-300" title="✗ No autoriza publicidad">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                    </span>
+                  );
+                } else {
+                  return (
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-600 border border-amber-300" title="? Por confirmar">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg>
+                    </span>
+                  );
+                }
+              })()}
+
               {/* Favorite Star */}
               <button
                 onClick={handleToggleFavorite}
@@ -319,6 +348,14 @@ export default function ChatWindowHeader({
 
         {/* Right: Actions menu + Active advisors */}
         <div className="flex items-center gap-3">
+          {/* Quick Actions Button - Only show when conversation is active */}
+          {conversation.status !== "closed" && (
+            <QuickActionsButton
+              conversationId={conversation.id}
+              onOpenManager={() => setShowQuickActionsManager(true)}
+            />
+          )}
+
           {/* Actions menu (3 dots) - Visible for all users */}
           <div className="relative actions-menu-container">
               <button
@@ -574,6 +611,12 @@ export default function ChatWindowHeader({
           )}
         </div>
       </div>
+
+      {/* Quick Actions Manager Modal */}
+      <QuickActionsManager
+        isOpen={showQuickActionsManager}
+        onClose={() => setShowQuickActionsManager(false)}
+      />
     </header>
   );
 }

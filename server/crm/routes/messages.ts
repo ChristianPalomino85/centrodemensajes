@@ -4,7 +4,7 @@ import { metricsTracker } from "../metrics-tracker";
 import type { CrmRealtimeManager } from "../ws";
 import type { BitrixService } from "../services/bitrix";
 import { sendOutboundMessage } from "../services/whatsapp";
-import { sendWspTestMessage, type WspTestResult } from "../../services/wsp";
+import { type WspTestResult } from "../../services/wsp";
 import type { MessageType } from "../models";
 import { uploadToWhatsAppMedia } from "../../services/whatsapp";
 import { attachmentStorage } from "../storage";

@@ -5,6 +5,7 @@ import { RAGAdmin } from "./RAGAdmin";
 import { KeywordTracking } from "./KeywordTracking";
 import { PersonalityConfig } from "./PersonalityConfig";
 import { CampaignMetrics } from "./CampaignMetrics";
+import { AITraining } from "./AITraining";
 
 interface Queue {
   id: string;
@@ -12,6 +13,7 @@ interface Queue {
 }
 
 interface IAAgentConfig {
+  enabled: boolean;  // Switch maestro ON/OFF
   agentName: string;
   model: string;
   temperature: number;
@@ -23,6 +25,7 @@ interface IAAgentConfig {
     presentsAs: string;
   };
   systemPrompt: string;
+  currentPromotions?: string;  // Promociones actuales (se integra al prompt)
   catalogs: Record<string, any>;
   catalogBehavior: {
     sendMode: string;
@@ -106,7 +109,7 @@ export function IAAgentConfig() {
   const [queues, setQueues] = useState<Queue[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'personality' | 'files' | 'rag' | 'keywords' | 'campaigns' | 'transfer' | 'vision' | 'advanced'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'personality' | 'files' | 'rag' | 'training' | 'keywords' | 'campaigns' | 'transfer' | 'vision' | 'advanced'>('general');
 
   useEffect(() => {
     loadConfig();
@@ -202,15 +205,43 @@ export function IAAgentConfig() {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-2">Configuración del Agente IA</h1>
-        <p className="text-gray-600">
-          Configura el agente virtual inteligente con herramientas y capacidades avanzadas
-        </p>
-        <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-800">
-            <strong>💡 Activación:</strong> El agente se activa cuando asignas el flujo "PROMOTORAS V3" a un número de WhatsApp en <strong>Configuración → WhatsApp → Números & Colas</strong>
-          </p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-2xl font-bold mb-1">Configuración del Agente IA</h1>
+            <p className="text-gray-600">
+              Configura el agente virtual inteligente con herramientas y capacidades avanzadas
+            </p>
+          </div>
+
+          {/* SWITCH MAESTRO ON/OFF */}
+          <div className={`p-4 rounded-lg border-2 ${config.enabled ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+            <div className="flex items-center gap-4">
+              <div className="text-center">
+                <div className={`text-3xl mb-1 ${config.enabled ? '' : 'grayscale opacity-50'}`}>🤖</div>
+                <div className={`text-xs font-bold ${config.enabled ? 'text-green-700' : 'text-red-700'}`}>
+                  {config.enabled ? 'ACTIVO' : 'INACTIVO'}
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.enabled}
+                  onChange={(e) => setConfig({ ...config, enabled: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-14 h-8 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-green-500"></div>
+              </label>
+            </div>
+          </div>
         </div>
+
+        {!config.enabled && (
+          <div className="p-4 bg-yellow-50 border border-yellow-300 rounded-lg mb-4">
+            <p className="text-sm text-yellow-800">
+              <strong>⚠️ Agente Desactivado:</strong> Los clientes serán transferidos automáticamente a un asesor humano.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -254,6 +285,16 @@ export function IAAgentConfig() {
           }`}
         >
           🧠 RAG
+        </button>
+        <button
+          onClick={() => setActiveTab('training')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === 'training'
+              ? 'text-blue-600 border-b-2 border-blue-600'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          🎓 Entrenamiento
         </button>
         <button
           onClick={() => setActiveTab('keywords')}
@@ -333,12 +374,27 @@ export function IAAgentConfig() {
                   onChange={(e) => setConfig({ ...config, model: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg"
                 >
-                  <option value="gpt-4-turbo-preview">GPT-4 Turbo</option>
-                  <option value="gpt-4">GPT-4</option>
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                  <option value="gpt-4o">GPT-4o</option>
-                  <option value="gpt-4o-mini">GPT-4o Mini</option>
+                  <optgroup label="🚀 GPT-5 (Agosto 2025+)">
+                    <option value="gpt-5">GPT-5 (Más potente)</option>
+                    <option value="gpt-5-mini">GPT-5 Mini (Balanceado)</option>
+                    <option value="gpt-5-nano">GPT-5 Nano (Ultra rápido, económico)</option>
+                    <option value="gpt-5.1">GPT-5.1 (Última versión)</option>
+                    <option value="gpt-5.1-mini">GPT-5.1 Mini</option>
+                    <option value="gpt-5.1-nano">GPT-5.1 Nano</option>
+                  </optgroup>
+                  <optgroup label="⚡ GPT-4">
+                    <option value="gpt-4o">GPT-4o (Multimodal)</option>
+                    <option value="gpt-4o-mini">GPT-4o Mini</option>
+                    <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                    <option value="gpt-4">GPT-4</option>
+                  </optgroup>
+                  <optgroup label="💰 GPT-3.5">
+                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Económico)</option>
+                  </optgroup>
                 </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  GPT-5 Nano: $0.05/1M tokens input | GPT-4o: $2.50/1M tokens input
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -386,6 +442,39 @@ export function IAAgentConfig() {
               className="w-full px-3 py-2 border rounded-lg font-mono text-sm"
               placeholder="Eres el asistente virtual..."
             />
+          </div>
+
+          {/* Promociones Actuales */}
+          <div className="bg-white p-6 rounded-lg border border-amber-200">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-2xl">🎉</span>
+              <h2 className="text-lg font-semibold">Promociones Actuales</h2>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">
+              Escribe las promociones vigentes. Se integrarán automáticamente al prompt del agente en formato TOON.
+            </p>
+            <div className="mb-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <p className="text-xs text-amber-800">
+                <strong>💡 Tip:</strong> Escribe en lenguaje natural. Ejemplo:<br/>
+                "2x1 en sandalias Azaleia hasta el 30/11"<br/>
+                "20% descuento en Olympikus Running esta semana"<br/>
+                "Envío gratis en compras mayores a S/200"
+              </p>
+            </div>
+            <textarea
+              value={config.currentPromotions || ''}
+              onChange={(e) => setConfig({ ...config, currentPromotions: e.target.value })}
+              rows={6}
+              className="w-full px-3 py-2 border border-amber-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500"
+              placeholder="Escribe aquí las promociones actuales...&#10;&#10;Ejemplo:&#10;- 2x1 en sandalias Azaleia (hasta 30/11)&#10;- 15% descuento en Olympikus Running&#10;- Envío gratis Lima pedidos > S/250"
+            />
+            {config.currentPromotions && (
+              <div className="mt-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                <p className="text-xs text-green-800">
+                  ✓ Las promociones se guardarán y el agente las mencionará cuando sea relevante.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Horario de Atención */}
@@ -456,6 +545,11 @@ export function IAAgentConfig() {
       {/* RAG Tab */}
       {activeTab === 'rag' && (
         <RAGAdmin />
+      )}
+
+      {/* Training Tab */}
+      {activeTab === 'training' && (
+        <AITraining />
       )}
 
       {/* Keywords Tab */}

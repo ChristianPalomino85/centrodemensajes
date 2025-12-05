@@ -10,7 +10,7 @@ const { Pool } = pg;
 
 // Fecha desde la cual los datos de primera respuesta son confiables
 // Antes de esta fecha, el campo sent_by no era correcto y los timestamps de sesión estaban desincronizados
-const RELIABLE_METRICS_SINCE = new Date('2025-11-19T00:00:00-05:00').getTime(); // 19 Nov 2025, 00:00 (hora Perú)
+const RELIABLE_METRICS_SINCE = new Date('2025-11-24T00:00:00-05:00').getTime(); // 24 Nov 2025, 00:00 (hora Perú)
 
 export interface ConversationMetric {
   id: string;
@@ -240,44 +240,68 @@ export class MetricsTrackerDB {
       note?: string;
     }
   ): Promise<void> {
-    const transferredAt = Date.now();
+    console.log('[METRICS DEBUG] transferConversation called:', {
+      conversationId,
+      fromAdvisorId,
+      toAdvisorId,
+      options,
+      timestamp: new Date().toISOString()
+    });
 
-    // Mark the old metric as transferred_out
-    await this.pool.query(
-      `UPDATE conversation_metrics
-       SET status = 'transferred_out', transferred_to = $1, transferred_at = $2, ended_at = $2, updated_at = NOW()
-       WHERE conversation_id = $3 AND advisor_id = $4 AND status NOT IN ('transferred_out', 'completed', 'abandoned')`,
-      [toAdvisorId, transferredAt, conversationId, fromAdvisorId]
-    );
+    try {
+      const transferredAt = Date.now();
 
-    // Create new metric for the receiving advisor
-    const newId = `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // Mark the old metric as transferred_out
+      console.log('[METRICS DEBUG] Executing UPDATE query for transferred_out...');
+      const updateResult = await this.pool.query(
+        `UPDATE conversation_metrics
+         SET status = 'transferred_out', transferred_to = $1, transferred_at = $2, ended_at = $2, updated_at = NOW()
+         WHERE conversation_id = $3 AND advisor_id = $4 AND status NOT IN ('transferred_out', 'completed', 'abandoned')`,
+        [toAdvisorId, transferredAt, conversationId, fromAdvisorId]
+      );
+      console.log('[METRICS DEBUG] UPDATE result:', { rowCount: updateResult.rowCount });
 
-    // Get original metric data
-    const original = await this.pool.query(
-      `SELECT channel_type, channel_id, tags
-       FROM conversation_metrics
-       WHERE conversation_id = $1 AND advisor_id = $2
-       ORDER BY started_at DESC
-       LIMIT 1`,
-      [conversationId, fromAdvisorId]
-    );
+      // Create new metric for the receiving advisor
+      const newId = `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    if (original.rows.length > 0) {
-      const { channel_type, channel_id, tags } = original.rows[0];
+      // Get original metric data
+      console.log('[METRICS DEBUG] Fetching original metric data...');
+      const original = await this.pool.query(
+        `SELECT channel_type, channel_id, tags
+         FROM conversation_metrics
+         WHERE conversation_id = $1 AND advisor_id = $2
+         ORDER BY started_at DESC
+         LIMIT 1`,
+        [conversationId, fromAdvisorId]
+      );
+      console.log('[METRICS DEBUG] Original metric found:', { found: original.rows.length > 0 });
 
-      await this.startConversation(newId, conversationId, toAdvisorId, {
-        queueId: options?.queueId || null,
-        channelType: channel_type,
-        channelId: channel_id,
-        status: 'transferred_in',
-        transferredFrom: fromAdvisorId,
-      });
+      if (original.rows.length > 0) {
+        const { channel_type, channel_id, tags } = original.rows[0];
 
-      // Copy tags if any
-      if (tags && Array.isArray(tags) && tags.length > 0) {
-        await this.addTags(conversationId, tags);
+        console.log('[METRICS DEBUG] Creating transferred_in metric...');
+        await this.startConversation(newId, conversationId, toAdvisorId, {
+          queueId: options?.queueId || null,
+          channelType: channel_type,
+          channelId: channel_id,
+          status: 'transferred_in',
+          transferredFrom: fromAdvisorId,
+        });
+        console.log('[METRICS DEBUG] transferred_in metric created successfully');
+
+        // Copy tags if any
+        if (tags && Array.isArray(tags) && tags.length > 0) {
+          console.log('[METRICS DEBUG] Copying tags:', tags);
+          await this.addTags(conversationId, tags);
+        }
+      } else {
+        console.warn('[METRICS DEBUG] No original metric found for conversation:', conversationId);
       }
+
+      console.log('[METRICS DEBUG] transferConversation completed successfully');
+    } catch (error) {
+      console.error('[METRICS DEBUG] ERROR in transferConversation:', error);
+      throw error;
     }
   }
 
@@ -353,9 +377,35 @@ export class MetricsTrackerDB {
   }
 
   /**
+   * Get metrics filtered by WhatsApp business number ID
+   */
+  async getMetricsByPhoneNumberId(phoneNumberId: string, startDate?: number, endDate?: number): Promise<ConversationMetric[]> {
+    let query = `SELECT cm.* FROM conversation_metrics cm
+                 INNER JOIN crm_conversations c ON c.id = cm.conversation_id
+                 WHERE cm.advisor_id NOT IN ('user-1', 'user-1762290677265')
+                 AND c.phone_number_id = $1`;
+    const params: any[] = [phoneNumberId];
+
+    if (startDate !== undefined) {
+      params.push(startDate);
+      query += ` AND cm.started_at >= $${params.length}`;
+    }
+
+    if (endDate !== undefined) {
+      params.push(endDate);
+      query += ` AND cm.started_at <= $${params.length}`;
+    }
+
+    query += ' ORDER BY cm.started_at DESC';
+
+    const result = await this.pool.query(query, params);
+    return result.rows.map(this.mapRowToMetric);
+  }
+
+  /**
    * Calculate KPIs for an advisor
    */
-  async calculateKPIs(advisorId?: string, startDate?: number, endDate?: number): Promise<{
+  async calculateKPIs(advisorId?: string, startDate?: number, endDate?: number, phoneNumberId?: string): Promise<{
     totalConversations: number;
     received: number;
     active: number;
@@ -371,12 +421,15 @@ export class MetricsTrackerDB {
     totalMessages: number;
     avgMessagesPerConversation: number;
   }> {
+    const needsConvJoin = !!phoneNumberId;
+
     let query = `
       WITH first_advisor_responses AS (
         SELECT
           cm.id as metric_id,
           MIN(msg.created_at) as first_msg_time
         FROM conversation_metrics cm
+        ${needsConvJoin ? 'INNER JOIN crm_conversations c ON c.id = cm.conversation_id' : ''}
         LEFT JOIN crm_messages msg ON msg.conversation_id = cm.conversation_id
           AND msg.direction = 'outgoing'
           AND msg.type = 'text'
@@ -401,6 +454,7 @@ export class MetricsTrackerDB {
         SUM(cm.message_count) as total_messages,
         AVG(cm.message_count) as avg_messages_per_conversation
       FROM conversation_metrics cm
+      ${needsConvJoin ? 'INNER JOIN crm_conversations c ON c.id = cm.conversation_id' : ''}
       LEFT JOIN first_advisor_responses far ON far.metric_id = cm.id
       WHERE 1=1
     `;
@@ -424,11 +478,16 @@ export class MetricsTrackerDB {
       filters += ` AND cm.started_at <= $${params.length}`;
     }
 
+    if (phoneNumberId) {
+      params.push(phoneNumberId);
+      filters += ` AND c.phone_number_id = $${params.length}`;
+    }
+
     // Replace placeholder in CTE with actual filters
     query = query.replace('{FILTERS_PLACEHOLDER}', filters);
 
-    // Add filters to main query too (with table alias)
-    query += filters.replace(/cm\./g, '');
+    // Add filters to main query too
+    query += filters;
 
     const result = await this.pool.query(query, params);
 

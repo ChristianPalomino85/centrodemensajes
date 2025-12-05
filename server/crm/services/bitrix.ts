@@ -186,15 +186,18 @@ export class BitrixService {
         select: [
           "ID", "NAME", "LAST_NAME", "PHONE", "EMAIL", "COMPANY_TITLE", "POST",
           "ASSIGNED_BY_ID", "DATE_CREATE", "DATE_MODIFY",
+          "TYPE_ID",  // Tipo de contacto (campo estándar de Bitrix)
+          "SOURCE_ID", // Origen del contacto
           // Campos personalizados de Azaleia
           "UF_CRM_5DEAADAE301BB",  // N° Documento
           "UF_CRM_1745466972",     // Dirección
-          "UF_CRM_67D702957E80A",  // Tipo de Contacto
+          "UF_CRM_67D702957E80A",  // Tipo de Contacto (personalizado)
           "UF_CRM_68121FB2B841A",  // Departamento
           "UF_CRM_1745461823632",  // Provincia
           "UF_CRM_1745461836705",  // Distrito
           "UF_CRM_1715014786",     // Líder
           "UF_CRM_1565801603901",  // Stencil
+          "UF_CRM_1753421555",     // Autoriza Publicidad (¿Te gustaría recibir novedades?)
         ],
       });
     } catch (error) {

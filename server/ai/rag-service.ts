@@ -6,7 +6,6 @@
 import type {
   AIProvider,
   AIClientConfig,
-  AIRequestConfig,
   AIResponse,
   RAGRequest,
 } from './types';

@@ -111,7 +111,7 @@ export function createAuthRouter() {
    */
   async function addLogoutNotifications(userId: string, userName: string): Promise<void> {
     try {
-      const { crmDb } = await import("../crm/db");
+      const { crmDb } = await import("../crm/db-postgres");
       const { getCrmGateway } = await import("../crm/ws");
 
       // Get all conversations assigned to this advisor

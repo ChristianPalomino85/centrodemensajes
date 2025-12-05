@@ -1,4 +1,3 @@
-import path from "path";
 import fs from "fs";
 import { getSecretsPath, readJsonFile } from "./storage";
 import { decryptObject } from "./encryption";

@@ -47,7 +47,7 @@ export const TRANSFER_TO_QUEUE_TOOL: OpenAITool = {
   type: 'function',
   function: {
     name: 'transfer_to_queue',
-    description: 'Transfiere al cliente a un asesor humano en una cola específica. El cliente quedará en espera y será atendido cuando haya asesores disponibles. Usa esta herramienta cuando: 1) El cliente quiera CREAR/MODIFICAR/ANULAR un pedido (usar queue_type="sales"), 2) El cliente tenga problemas/reclamos/garantías/consultas que NO sean pedidos (usar queue_type="support"), 3) El cliente muestre interés en SER PROMOTORA (usar queue_type="prospects"). IMPORTANTE: Puedes transferir en CUALQUIER momento, incluso fuera de horario - el cliente quedará en cola y será atendido cuando el asesor esté disponible.',
+    description: 'Transfiere a asesora humana. Llama esta herramienta DESPUÉS de check_business_hours e informar al cliente. USA cuando: 1) Cliente quiera pedido/reserva (sales), 2) Problemas/reclamos/garantías (support), 3) Quiera ser promotora (prospects). IMPORTANTE: Usa lenguaje peruano informal: "asesora/asesor" (NUNCA "especialista"), "ahora te paso", "deja te comunico". Varía tu mensaje cada vez (no repitas lo mismo). Sé breve y cálida.',
     parameters: {
       type: 'object',
       properties: {
@@ -100,7 +100,7 @@ export const CHECK_BUSINESS_HOURS_TOOL: OpenAITool = {
   type: 'function',
   function: {
     name: 'check_business_hours',
-    description: 'Verifica si estamos en horario de atención para poder transferir a un asesor humano. Usa esta herramienta ANTES de intentar transferir al cliente. El horario es Lunes a Sábado 9:00-18:00 (hora de Lima).',
+    description: 'Verifica horario (Lun-Sab 9am-6pm Lima). CRÍTICO: Esta herramienta SOLO verifica, NO transfiere. SIEMPRE debes llamar transfer_to_queue después. Usa lenguaje peruano: "asesora" (NUNCA "especialista"). Varía tu respuesta cada vez (no repitas la misma frase). Si isOpen=true: Ej. "ahora mismo te paso con una asesora", "deja te comunico con el equipo". Si isOpen=false: Ej. "estamos fuera de horario (Lun-Sab 9am-6pm), pero te dejo en cola y apenas se conecte una asesora te atiende".',
     parameters: {
       type: 'object',
       properties: {
@@ -242,14 +242,138 @@ export const EXTRACT_TEXT_OCR_TOOL: OpenAITool = {
 };
 
 /**
+ * Tool: Extract Handwritten Order
+ * Extracts order information from handwritten notes using GPT-4 Vision
+ */
+export const EXTRACT_HANDWRITTEN_ORDER_TOOL: OpenAITool = {
+  type: 'function',
+  function: {
+    name: 'extract_handwritten_order',
+    description: 'Extrae información de pedidos escritos a mano en papel. USA ESTA HERRAMIENTA cuando el cliente envíe una FOTO de una hoja de papel con un pedido escrito a mano. Puede reconocer: códigos de producto, modelos, tallas, cantidades y nombres. Esta herramienta usa visión por computadora especializada para manuscritos.',
+    parameters: {
+      type: 'object',
+      properties: {
+        image_url: {
+          type: 'string',
+          description: 'URL de la imagen de la hoja con el pedido escrito a mano'
+        },
+        additional_context: {
+          type: 'string',
+          description: 'Contexto adicional proporcionado por el cliente (ej: "es mi pedido de la semana")'
+        }
+      },
+      required: ['image_url']
+    }
+  }
+};
+
+/**
+ * Tool: Verificar Opt-In
+ * Checks if customer has already accepted/rejected marketing communications
+ */
+export const VERIFICAR_OPT_IN_TOOL: OpenAITool = {
+  type: 'function',
+  function: {
+    name: 'verificar_opt_in',
+    description: 'Verifica si el cliente actual ya tiene registrado su consentimiento de publicidad en Bitrix. USA ESTA HERRAMIENTA AL INICIO de cada conversación. NO necesitas pasar ningún parámetro - el sistema usa automáticamente el teléfono del cliente que está escribiendo. Si needsOptIn=true, se envían botones automáticamente.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  }
+};
+
+/**
+ * Tool: Enviar Pregunta Opt-In
+ * Sends opt-in questions with interactive buttons
+ */
+export const ENVIAR_PREGUNTA_OPT_IN_TOOL: OpenAITool = {
+  type: 'function',
+  function: {
+    name: 'enviar_pregunta_opt_in',
+    description: '🚨 OBLIGATORIO: Envía pregunta de consentimiento con BOTONES INTERACTIVOS de WhatsApp. DEBES usar esta herramienta cuando verificar_opt_in retorne needsOptIn=true. NO escribas tú mismo la pregunta - USA ESTA HERRAMIENTA para que aparezcan los botones en WhatsApp. Orden: PRIMERO tipo="politica", DESPUÉS tipo="publicidad".',
+    parameters: {
+      type: 'object',
+      properties: {
+        tipo: {
+          type: 'string',
+          enum: ['politica', 'publicidad'],
+          description: 'PRIMERO usa "politica", DESPUÉS "publicidad". Nunca al revés.'
+        }
+      },
+      required: ['tipo']
+    }
+  }
+};
+
+/**
+ * Tool: Guardar Opt-In
+ * Saves the opt-in response in Bitrix
+ */
+export const GUARDAR_OPT_IN_TOOL: OpenAITool = {
+  type: 'function',
+  function: {
+    name: 'guardar_opt_in',
+    description: 'Guarda la respuesta de consentimiento de publicidad en Bitrix. Usa esta herramienta después de que el cliente responda a la pregunta de publicidad (Sí o No). El valor se guarda en el campo correspondiente según si es Contact o Lead.',
+    parameters: {
+      type: 'object',
+      properties: {
+        aceptaPublicidad: {
+          type: 'boolean',
+          description: 'true si el cliente acepta recibir publicidad, false si no acepta'
+        },
+        entityType: {
+          type: 'string',
+          enum: ['contact', 'lead'],
+          description: 'Tipo de entidad en Bitrix (contact o lead). Si no se proporciona, se busca automáticamente.'
+        },
+        entityId: {
+          type: 'string',
+          description: 'ID de la entidad en Bitrix. Si no se proporciona, se busca automáticamente por teléfono.'
+        }
+      },
+      required: ['aceptaPublicidad']
+    }
+  }
+};
+
+/**
+ * Tool: Validar Promotora SQL
+ * Validates if a customer is a registered promotora in SQL Server database
+ */
+export const VALIDAR_PROMOTORA_SQL_TOOL: OpenAITool = {
+  type: 'function',
+  function: {
+    name: 'validar_promotora_sql',
+    description: 'Valida si el cliente es una PROMOTORA REGISTRADA en el sistema (base de datos SQL Server). USA ESTA HERRAMIENTA cuando el cliente quiera hacer un PEDIDO o RESERVA de catálogo. FLUJO: 1) Primero valida por teléfono (automático), 2) Si no encuentra, pregunta DNI/RUC y valida con ese documento, 3) Si aún no encuentra, transferir a asesora para actualizar datos. IMPORTANTE: Una vez validado como promotora, el flag se guarda en la sesión para no repetir validaciones.',
+    parameters: {
+      type: 'object',
+      properties: {
+        documento: {
+          type: 'string',
+          description: 'DNI (8 dígitos) o RUC (11 dígitos) del cliente. Solo usar si la validación por teléfono falló y el cliente proporcionó su documento.'
+        }
+      },
+      required: []
+    }
+  }
+};
+
+/**
  * All available tools for the agent
  */
 export const ALL_AGENT_TOOLS: OpenAITool[] = [
+  VERIFICAR_OPT_IN_TOOL,
+  ENVIAR_PREGUNTA_OPT_IN_TOOL,
+  GUARDAR_OPT_IN_TOOL,
   SEARCH_KNOWLEDGE_BASE_TOOL,
   SEND_CATALOGS_TOOL,
   TRANSFER_TO_QUEUE_TOOL,
   CHECK_BUSINESS_HOURS_TOOL,
   SAVE_LEAD_INFO_TOOL,
+  VALIDAR_PROMOTORA_SQL_TOOL,
   EXTRACT_TEXT_OCR_TOOL,
+  EXTRACT_HANDWRITTEN_ORDER_TOOL,
   END_CONVERSATION_TOOL,
 ];

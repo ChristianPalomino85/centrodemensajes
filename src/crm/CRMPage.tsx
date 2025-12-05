@@ -255,7 +255,14 @@ export default function CRMPage() {
     });
 
     socket.on("crm:msg:update", ({ message, attachment }) => {
+      console.log('[CRM Page] 🔔 WebSocket event: crm:msg:update', {
+        messageId: message.id,
+        convId: message.convId,
+        status: message.status,
+      });
       setConversationData((prev) => updateConversationData(prev, message.convId, (state) => {
+        const found = state.messages.some((item) => item.id === message.id);
+        console.log(`[CRM Page] Message ${message.id} found in state: ${found}`);
         return {
           messages: state.messages.map((item) => (item.id === message.id ? message : item)),
           attachments: attachment

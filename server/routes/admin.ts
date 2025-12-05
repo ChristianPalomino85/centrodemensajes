@@ -633,7 +633,7 @@ export function createAdminRouter(): Router {
       const gateway = getCrmGateway();
        if(gateway) {
         const { buildPresencePayload } = await import("../crm/ws");
-        const { crmDb } = await import("../crm/db");
+        const { crmDb } = await import("../crm/db-postgres");
         const presencePayload = await buildPresencePayload(userId);
 
          if(presencePayload) {
@@ -929,7 +929,7 @@ export function createAdminRouter(): Router {
    */
   router.get("/advisor-presence", async (req, res) => {
     try {
-      const { crmDb } = await import("../crm/db");
+      const { crmDb } = await import("../crm/db-postgres");
       const { advisorPresence } = await import("../crm/advisor-presence");
       const users = await adminDb.getAllUsers();
       const statuses = await adminDb.getAllAdvisorStatuses();
@@ -980,7 +980,7 @@ export function createAdminRouter(): Router {
    */
   router.get("/advisor-stats", async (req, res) => {
     try {
-      const { crmDb } = await import("../crm/db");
+      const { crmDb } = await import("../crm/db-postgres");
 
       // Get all users and filter advisors
       const users = await adminDb.getAllUsers();
@@ -1057,10 +1057,13 @@ export function createAdminRouter(): Router {
 
       const limit = parseInt(req.query.limit as string) || 50;
       const offset = parseInt(req.query.offset as string) || 0;
+      // Only show events from last 48 hours to keep history clean
+      const hoursToShow = parseInt(req.query.hours as string) || 48;
 
       const result = await pool.query(
         `SELECT id, user_id, user_name, event_type, status_id, status_name, timestamp, metadata
          FROM advisor_activity_logs
+         WHERE timestamp > NOW() - INTERVAL '${hoursToShow} hours'
          ORDER BY timestamp DESC
          LIMIT $1 OFFSET $2`,
         [limit, offset]

@@ -28,7 +28,7 @@ import { WhatsAppWebhookHandler } from "../src/api/whatsapp-webhook";
 import { LocalStorageFlowProvider } from "./flow-provider";
 import { HttpWebhookDispatcher } from "./webhook-dispatcher";
 import { createSessionStore } from "./session-store";
-import { canBotTakeControl, isAssignedToHuman } from "../shared/conversation-rules";
+import { canBotTakeControl } from "../shared/conversation-rules";
 import { Bitrix24Client } from "../src/integrations/bitrix24";
 import { botLogger, metricsTracker } from "../src/runtime/monitoring";
 import { createApiRoutes } from "./api-routes";
@@ -56,6 +56,9 @@ import userProfileRouter from "./routes/user-profile";
 import ticketsRouter from "./routes/tickets";
 import maintenanceRouter from "./routes/maintenance";
 import { createMetricsRouter } from "./crm/routes/metrics";
+import { createSalesConversionsRouter } from "./crm/routes/sales-conversions";
+import quickActionsRouter from "./crm/routes/quick-actions";
+import { createImageProxyRouter } from "./routes/image-proxy";
 import { requireAuth } from "./auth/middleware";
 import { adminDb } from "./admin-db";
 import { crmDb } from "./crm/db-postgres";
@@ -65,15 +68,14 @@ import { advisorPresence } from "./crm/advisor-presence";
 import { logDebug, logError, formatEventTimestamp } from "./utils/file-logger";
 import { roundRobinTracker } from "./crm/round-robin-tracker";
 import { TimerScheduler } from "./timer-scheduler";
-import { QueueScheduler } from "./queue-scheduler";
 import { QueueDistributor } from "./queue-distributor";
 import { BotTimeoutScheduler } from "./bot-timeout-scheduler";
-import { authLimiter, apiLimiter, webhookLimiter, flowLimiter, metricsLimiter } from "./middleware/rate-limit";
+import { apiLimiter, webhookLimiter, flowLimiter, metricsLimiter } from "./middleware/rate-limit";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler";
 import { requestIdMiddleware } from "./middleware/request-id";
 import logger from "./utils/logger";
-import { validateBody, validateParams } from "./middleware/validate";
-import { flowSchema, flowIdSchema } from "./schemas/validation";
+import { validateParams } from "./middleware/validate";
+import { flowIdSchema } from "./schemas/validation";
 import { validateEnv } from "./utils/validate-env";
 import { MessageGroupingService } from './services/message-grouping';
 import { readConfig as readAgentConfig } from './routes/ia-agent-config';
@@ -106,12 +108,8 @@ setTimeout(async () => {
 // Set up keyword usage tracking handler
 setKeywordUsageHandler(async (data) => {
   try {
-    // Find conversation by phone
-    const allConversations = await crmDb.getAllConversations();
-    const conversation = allConversations.find(conv =>
-      conv.phone === data.phone && conv.channel === 'whatsapp'
-    );
-
+    // Find conversation by phone (indexed query instead of full scan)
+    const conversation = await crmDb.getConversationByPhoneAndChannel(data.phone, 'whatsapp', data.phoneNumberId);
     const conversationId = conversation?.id || data.conversationId;
 
     // Register keyword usage
@@ -198,9 +196,9 @@ app.use(cookieParser()); // Cookie parser ANTES de las rutas
 app.use('/api/flows', express.json({ limit: '500mb' }));
 app.use('/api/flows', express.urlencoded({ extended: true, limit: '500mb' }));
 
-// CRM attachments: 100MB (WhatsApp document limit)
-app.use('/api/crm/attachments/upload', express.json({ limit: '100mb' }));
-app.use('/api/crm/attachments/upload', express.urlencoded({ extended: true, limit: '100mb' }));
+// CRM attachments: 40MB per file (base64 overhead handled by 60MB body limit)
+app.use('/api/crm/attachments/upload', express.json({ limit: '60mb' }));
+app.use('/api/crm/attachments/upload', express.urlencoded({ extended: true, limit: '60mb' }));
 
 // CRM general: 10MB (messages, conversations, etc.)
 app.use('/api/crm', express.json({ limit: '10mb' }));
@@ -381,6 +379,14 @@ async function createWhatsAppHandler() {
       const phoneNumber = context.message.from;
       const phoneNumberId = context.value.metadata?.phone_number_id;
 
+      // 🐛 FIX: NO activar bot con mensajes pasivos (reacciones, ubicaciones, contactos, etc.)
+      // Estos mensajes se guardan en CRM para que el asesor los vea, pero NO activan el bot
+      const passiveMessageTypes = ['reaction', 'contacts', 'location', 'order', 'unsupported'];
+      if (passiveMessageTypes.includes(context.message.type)) {
+        logger.info(`[WhatsApp] ⏭️ Bot skipped: passive message type "${context.message.type}" from ${phoneNumber} - message saved to CRM only`);
+        return null; // Don't execute bot, but message will be saved to CRM
+      }
+
       // CRITICAL: Check if conversation is being attended by an advisor
       const existingConversation = await crmDb.getConversationByPhoneAndChannel(phoneNumber, 'whatsapp', phoneNumberId);
 
@@ -552,7 +558,7 @@ async function createWhatsAppHandler() {
               let assignedToAdvisor = false;
 
               if (queue && queue.assignedAdvisors && queue.assignedAdvisors.length > 0) {
-                console.log('[Bot Transfer] 4/7 Trying auto-assignment to', queue.assignedAdvisors.length, 'advisors...');
+                console.log('[Bot Transfer DEBUG] Cola:', queue.name, '('+queue.id+') - Asesores asignados:', queue.assignedAdvisors);
 
                 // Get available advisors (those with status action = "accept" AND online)
                 const availableAdvisors = [];
@@ -562,11 +568,14 @@ async function createWhatsAppHandler() {
                     const status = await adminDb.getAdvisorStatusById(statusAssignment.statusId);
                     // ✅ CRITICAL FIX: Check BOTH status AND isOnline()
                     const isOnline = advisorPresence.isOnline(advisorId);
+                    console.log('[Bot Transfer DEBUG] Asesor', advisorId, '- Status action:', status?.action, '- Online:', isOnline);
                     if (status?.action === "accept" && isOnline) {
                       availableAdvisors.push(advisorId);
+                      console.log('[Bot Transfer DEBUG] Asesor', advisorId, 'agregado a availableAdvisors');
                     }
                   }
                 }
+                console.log('[Bot Transfer DEBUG] Asesores disponibles para asignación:', availableAdvisors);
 
                 if (availableAdvisors.length > 0) {
                   // Use round-robin to select next advisor
@@ -766,7 +775,7 @@ async function createWhatsAppHandler() {
     onBotMessage: async (payload) => {
       // Register bot messages in CRM
       try {
-        const { crmDb } = await import('./crm/db');
+        const { crmDb } = await import('./crm/db-postgres');
 
         // CRITICAL FIX: First try to find ANY active conversation for this phone
         // This prevents creating duplicate conversations when bot responds from different number
@@ -1190,6 +1199,9 @@ app.use("/api/connections/whatsapp", requireAuth, whatsappConnectionsRouter);
 // Admin routes
 const adminRouter = createAdminRouter();
 
+// Image Proxy routes (PUBLIC - no auth required for performance)
+const imageProxyRouter = createImageProxyRouter();
+
 // Make whatsapp-numbers endpoint PUBLIC for canvas use (BEFORE auth middleware)
 app.get("/api/admin/whatsapp-numbers", requireAuth, async (req, res) => {
   try {
@@ -1457,6 +1469,9 @@ app.use("/api/ia-agent-files", requireAuth, iaAgentFilesRouter);
 // RAG Admin routes - PROTEGIDAS CON AUTH
 app.use("/api/rag-admin", requireAuth, ragAdminRouter);
 
+// Image Proxy routes (PUBLIC - for loading Facebook CDN images)
+app.use("/api", imageProxyRouter);
+
 // Template Images routes (for storing permanent images) - PROTEGIDAS CON AUTH
 app.use("/api/template-images", templateImagesRouter);
 
@@ -1479,6 +1494,13 @@ app.use("/api/campaigns", requireAuth, createCampaignsRouter(crmSocketManager));
 const crmMetricsRouter = createMetricsRouter();
 app.use("/api/crm/metrics", requireAuth, metricsLimiter, crmMetricsRouter);
 
+// Sales Conversions routes - PROTEGIDAS CON AUTH
+const salesConversionsRouter = createSalesConversionsRouter();
+app.use("/api/crm/sales-conversions", requireAuth, metricsLimiter, salesConversionsRouter);
+
+// Quick Actions routes (minibots/scripts) - PROTEGIDAS CON AUTH
+app.use("/api/crm/quick-actions", requireAuth, quickActionsRouter);
+
 // Metrics routes - MORE LENIENT rate limiting for real-time polling
 // Must be BEFORE the general /api route to override apiLimiter
 const metricsRoutes = createApiRoutes({ flowProvider, sessionStore });
@@ -1500,6 +1522,14 @@ app.use("/template-images", express.static("public/template-images", {
   setHeaders: (res) => {
     // Cache images for 1 hour
     res.setHeader('Cache-Control', 'public, max-age=3600');
+  }
+}));
+
+// Serve uploaded ad images (NO AUTH required - public access)
+app.use("/uploads", express.static("uploads", {
+  setHeaders: (res) => {
+    // Cache images for 1 day (they never change)
+    res.setHeader('Cache-Control', 'public, max-age=86400');
   }
 }));
 
@@ -1600,6 +1630,11 @@ server.listen(PORT, async () => {
     refresh_threshold_minutes: 15
   });
   // ========== END PROACTIVE BITRIX24 TOKEN REFRESH ==========
+
+  // ========== START SALES-WHATSAPP SYNC JOB ==========
+  const { startSalesSyncSchedule } = await import("./jobs/sales-sync-job");
+  startSalesSyncSchedule();
+  // ========== END SALES-WHATSAPP SYNC JOB ==========
 });
 
 // Export bot timeout scheduler for API access

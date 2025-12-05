@@ -40,6 +40,7 @@ export const BITRIX_CONTACT_FIELDS = {
   DISTRITO: 'UF_CRM_1745461836705',           // Distrito (Cadena)
   LIDER: 'UF_CRM_1715014786',                 // Líder (Cadena)
   STENCIL: 'UF_CRM_1565801603901',            // Stencil (Lista)
+  AUTORIZA_PUBLICIDAD: 'UF_CRM_1753421555',   // ¿Te gustaría recibir novedades y ofertas exclusivas de Azaleia?
 } as const;
 
 /**
@@ -54,6 +55,7 @@ export const BITRIX_LEAD_FIELDS = {
 
   // Campos personalizados
   DEPARTAMENTOS: 'UF_CRM_1662413427',         // Departamentos (Lista)
+  AUTORIZA_PUBLICIDAD: 'UF_CRM_1749101575',   // Autoriza Publicidad
 } as const;
 
 /**

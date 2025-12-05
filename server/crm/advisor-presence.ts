@@ -8,6 +8,9 @@
 import { crmDb } from "./db";
 import { adminDb } from "../admin-db";
 import { sessionsStorageDB } from "./sessions-db";
+import pg from 'pg';
+
+const { Pool } = pg;
 
 export interface AdvisorPresence {
   userId: string;
@@ -19,9 +22,94 @@ export interface AdvisorPresence {
 }
 
 export class AdvisorPresenceTracker {
-  private presence = new Map<string, AdvisorPresence>();
-  private sessionToUser = new Map<string, string>(); // sessionId -> userId mapping
+  private pool: Pool;
+  private sessionToUser = new Map<string, string>(); // sessionId -> userId mapping (in-memory for performance)
   private offlineTimeouts = new Map<string, NodeJS.Timeout>(); // Delayed offline marking
+  private onlineCache = new Map<string, boolean>(); // In-memory cache for fast isOnline() checks
+
+  constructor() {
+    this.pool = new Pool({
+      host: process.env.POSTGRES_HOST || 'localhost',
+      port: parseInt(process.env.POSTGRES_PORT || '5432'),
+      database: process.env.POSTGRES_DB || 'flowbuilder_crm',
+      user: process.env.POSTGRES_USER || 'whatsapp_user',
+      password: process.env.POSTGRES_PASSWORD,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+    });
+
+    // Sync cache from PostgreSQL every 5 seconds
+    setInterval(() => {
+      this.syncCacheFromPostgres().catch(err =>
+        console.error('[AdvisorPresence] Error syncing cache:', err)
+      );
+    }, 5000);
+
+    // 🐛 BUG FIX: Clean up ghost connections every 60 seconds
+    // If a user is marked as online but hasn't been seen for 10+ minutes, mark them offline
+    setInterval(() => {
+      this.cleanupGhostConnections().catch(err =>
+        console.error('[AdvisorPresence] Error cleaning up ghost connections:', err)
+      );
+    }, 60000); // Run every 60 seconds
+  }
+
+  /**
+   * 🐛 BUG FIX: Clean up ghost connections
+   * Users marked as online but without activity for 10+ minutes are marked offline
+   */
+  private async cleanupGhostConnections(): Promise<void> {
+    const tenMinutesAgo = Date.now() - (10 * 60 * 1000); // 10 minutes
+
+    try {
+      const result = await this.pool.query(
+        `UPDATE advisor_presence
+         SET is_online = FALSE, active_connections = 0, session_id = NULL, connected_at = NULL
+         WHERE is_online = TRUE AND last_seen < $1
+         RETURNING user_id`,
+        [tenMinutesAgo]
+      );
+
+      if (result.rows.length > 0) {
+        console.log(`[AdvisorPresence] 🧹 Cleaned up ${result.rows.length} ghost connection(s):`,
+          result.rows.map(r => r.user_id).join(', '));
+
+        // Update cache and emit presence updates
+        for (const row of result.rows) {
+          this.updateCache(row.user_id, false);
+          this.emitPresenceUpdate(row.user_id);
+        }
+      }
+    } catch (error) {
+      console.error('[AdvisorPresence] Error cleaning up ghost connections:', error);
+    }
+  }
+
+  /**
+   * Sync in-memory cache from PostgreSQL
+   */
+  private async syncCacheFromPostgres(): Promise<void> {
+    try {
+      const result = await this.pool.query(
+        `SELECT user_id, is_online FROM advisor_presence`
+      );
+
+      this.onlineCache.clear();
+      for(const row of result.rows) {
+        this.onlineCache.set(row.user_id, row.is_online);
+      }
+    } catch (error) {
+      console.error('[AdvisorPresence] Error syncing cache from PostgreSQL:', error);
+    }
+  }
+
+  /**
+   * Update cache after changing presence
+   */
+  private updateCache(userId: string, isOnline: boolean): void {
+    this.onlineCache.set(userId, isOnline);
+  }
 
   /**
    * Initialize presence for all known advisors (set them as offline)
@@ -30,16 +118,18 @@ export class AdvisorPresenceTracker {
    async initializeAdvisors(userIds: string[]): void {
     const now = Date.now();
     for(const userId of userIds) {
-      if(!this.presence.has(userId)) {
-        this.presence.set(userId, {
-          userId,
-          isOnline: false,
-          lastSeen: now,
-          activeConnections: 0,
-        });
+      try {
+        await this.pool.query(
+          `INSERT INTO advisor_presence (user_id, is_online, last_seen, active_connections)
+           VALUES ($1, FALSE, $2, 0)
+           ON CONFLICT (user_id) DO NOTHING`,
+          [userId, now]
+        );
+      } catch (error) {
+        console.error(`[AdvisorPresence] Error initializing advisor ${userId}:`, error);
       }
     }
-    console.log(`[AdvisorPresence] Initialized ${userIds.length} advisors as offline`);
+    console.log(`[AdvisorPresence] Initialized ${userIds.length} advisors in PostgreSQL`);
   }
 
   /**
@@ -50,7 +140,22 @@ export class AdvisorPresenceTracker {
     console.log(`[AdvisorPresence] 🔵 ${userId} coming online - sessionId: ${sessionId?.substring(0, 10)}...`);
 
     const now = Date.now();
-    const existing = this.presence.get(userId);
+
+    // Get current presence from PostgreSQL
+    const result = await this.pool.query(
+      `SELECT * FROM advisor_presence WHERE user_id = $1`,
+      [userId]
+    );
+
+    const existing = result.rows.length > 0 ? {
+      userId: result.rows[0].user_id,
+      isOnline: result.rows[0].is_online,
+      lastSeen: parseInt(result.rows[0].last_seen),
+      sessionId: result.rows[0].session_id,
+      connectedAt: result.rows[0].connected_at ? parseInt(result.rows[0].connected_at) : null,
+      activeConnections: parseInt(result.rows[0].active_connections) || 0,
+    } : null;
+
     const wasOffline = !existing || !existing.isOnline;
 
     // Cancel any pending offline timeout (in case of reconnection)
@@ -61,22 +166,33 @@ export class AdvisorPresenceTracker {
       console.log(`[AdvisorPresence] ✅ ${userId} reconnected - offline timeout cancelled`);
     }
 
-    const newPresence = {
-      userId,
-      isOnline: true,
-      lastSeen: now,
-      connectedAt: existing?.connectedAt || now,
-      sessionId,
-      activeConnections: (existing?.activeConnections || 0) + 1,
-    };
+    const newActiveConnections = (existing?.activeConnections || 0) + 1;
+    const connectedAt = existing?.connectedAt || now;
 
-    this.presence.set(userId, newPresence);
+    // Update presence in PostgreSQL
+    await this.pool.query(
+      `INSERT INTO advisor_presence (user_id, is_online, last_seen, session_id, connected_at, active_connections)
+       VALUES ($1, TRUE, $2, $3, $4, $5)
+       ON CONFLICT (user_id) DO UPDATE SET
+         is_online = TRUE,
+         last_seen = $2,
+         session_id = $3,
+         connected_at = COALESCE(advisor_presence.connected_at, $4),
+         active_connections = advisor_presence.active_connections + 1`,
+      [userId, now, sessionId, connectedAt, newActiveConnections]
+    );
 
     if(sessionId) {
       this.sessionToUser.set(sessionId, userId);
     }
 
-    console.log(`[AdvisorPresence] ✅ ${userId} is now ONLINE (${(existing?.activeConnections || 0) + 1} connections)`);
+    console.log(`[AdvisorPresence] ✅ ${userId} is now ONLINE (${newActiveConnections} connections)`);
+
+    // Update cache
+    this.updateCache(userId, true);
+
+    // CRITICAL: Emit presence update to all clients
+    this.emitPresenceUpdate(userId);
 
     // CRITICAL: Assign queue chats when advisor goes from offline to online
     if(wasOffline) {
@@ -100,116 +216,156 @@ export class AdvisorPresenceTracker {
    * This prevents flickering during page refreshes
    */
    async markOffline(userId: string, immediate: boolean = false): Promise<void> {
-    const current = this.presence.get(userId);
+    const now = Date.now();
 
-    if(current) {
-      const newConnectionCount = Math.max(0, (current.activeConnections || 0) - 1);
-      const shouldScheduleOffline = newConnectionCount === 0;
+    // Get current presence from PostgreSQL
+    const result = await this.pool.query(
+      `SELECT * FROM advisor_presence WHERE user_id = $1`,
+      [userId]
+    );
 
-      // Update connection count immediately
-      this.presence.set(userId, {
-        ...current,
-        lastSeen: Date.now(),
-        activeConnections: newConnectionCount,
+    if(result.rows.length === 0) {
+      console.warn(`[AdvisorPresence] ⚠️ ${userId} not found in presence table`);
+      return;
+    }
+
+    const current = {
+      userId: result.rows[0].user_id,
+      isOnline: result.rows[0].is_online,
+      lastSeen: parseInt(result.rows[0].last_seen),
+      sessionId: result.rows[0].session_id,
+      connectedAt: result.rows[0].connected_at ? parseInt(result.rows[0].connected_at) : null,
+      activeConnections: parseInt(result.rows[0].active_connections) || 0,
+    };
+
+    // 🐛 BUG FIX: When immediate=true (manual logout), ALWAYS mark offline
+    // Don't just decrement - the user explicitly logged out
+    if (immediate) {
+      console.log(`[AdvisorPresence] 🔴 ${userId} logging out - marking offline immediately (was ${current.activeConnections} connections)`);
+
+      await this.pool.query(
+        `UPDATE advisor_presence
+         SET is_online = FALSE, last_seen = $1, session_id = NULL, connected_at = NULL, active_connections = 0
+         WHERE user_id = $2`,
+        [now, userId]
+      );
+
+      // Remove session mapping
+      if (current.sessionId) {
+        this.sessionToUser.delete(current.sessionId);
+      }
+
+      // Cancel any pending timeout
+      const existingTimeout = this.offlineTimeouts.get(userId);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+        this.offlineTimeouts.delete(userId);
+      }
+
+      // Update cache
+      this.updateCache(userId, false);
+
+      // Emit presence update immediately
+      this.emitPresenceUpdate(userId);
+
+      // Close all open database sessions for this advisor
+      console.log(`[AdvisorPresence] 🔒 Closing all open sessions for ${userId}`);
+      this.closeAdvisorSessions(userId).catch(error => {
+        console.error(`[AdvisorPresence] ❌ Error closing sessions for ${userId}:`, error);
       });
 
-      if(shouldScheduleOffline) {
-        // If immediate logout (manual logout), mark offline right away
-        if(immediate) {
-          console.log(`[AdvisorPresence] 🔴 ${userId} logging out - marking offline immediately`);
+      // POR TRABAJAR (active) → vuelven a cola para otros asesores
+      // TRABAJANDO (attending) → se quedan con el asesor hasta que vuelva
+      console.log(`[AdvisorPresence] 🔄 LOGOUT - POR TRABAJAR van a cola, TRABAJANDO quedan con asesor`);
+      this.returnActiveChatsToQueue(userId).catch(error => {
+        console.error(`[AdvisorPresence] ❌ Error returning active chats to queue for ${userId}:`, error);
+      });
 
-          this.presence.set(userId, {
-            ...current,
-            isOnline: false,
-            lastSeen: Date.now(),
-            sessionId: undefined,
-            connectedAt: undefined,
-            activeConnections: 0,
-          });
+      return; // Exit early - we're done
+    }
+
+    // Normal flow for WebSocket disconnections (not manual logout)
+    const newConnectionCount = Math.max(0, current.activeConnections - 1);
+    const shouldScheduleOffline = newConnectionCount === 0;
+
+    // Update connection count immediately in PostgreSQL
+    await this.pool.query(
+      `UPDATE advisor_presence
+       SET active_connections = $1, last_seen = $2
+       WHERE user_id = $3`,
+      [newConnectionCount, now, userId]
+    );
+
+    if(shouldScheduleOffline) {
+      // All WebSocket connections closed - schedule offline after 5 second delay
+      // This prevents flickering during page refreshes
+      console.log(`[AdvisorPresence] ⚠️ ${userId} all connections closed - scheduling offline in 5s...`);
+
+      // Cancel any existing timeout
+      const existingTimeout = this.offlineTimeouts.get(userId);
+      if(existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+
+      // Schedule offline marking after 5 seconds (gives time for reconnection)
+      const timeout = setTimeout(async () => {
+        // Re-fetch to check if reconnected
+        const checkResult = await this.pool.query(
+          `SELECT active_connections, session_id FROM advisor_presence WHERE user_id = $1`,
+          [userId]
+        );
+
+        if(checkResult.rows.length === 0) return;
+
+        const latest = {
+          activeConnections: parseInt(checkResult.rows[0].active_connections) || 0,
+          sessionId: checkResult.rows[0].session_id,
+        };
+
+        // Double-check: only mark offline if still at 0 connections
+        if(latest.activeConnections === 0) {
+          await this.pool.query(
+            `UPDATE advisor_presence
+             SET is_online = FALSE, session_id = NULL, connected_at = NULL
+             WHERE user_id = $1`,
+            [userId]
+          );
 
           // Remove session mapping
-          if(current.sessionId) {
-            this.sessionToUser.delete(current.sessionId);
+          if(latest.sessionId) {
+            this.sessionToUser.delete(latest.sessionId);
           }
 
-          // Cancel any pending timeout
-          const existingTimeout = this.offlineTimeouts.get(userId);
-          if(existingTimeout) {
-            clearTimeout(existingTimeout);
-            this.offlineTimeouts.delete(userId);
-          }
+          this.offlineTimeouts.delete(userId);
+          console.log(`[AdvisorPresence] 🔴 ${userId} is now OFFLINE (timeout expired, no reconnection)`);
 
-          // Emit presence update immediately
+          // Update cache
+          this.updateCache(userId, false);
+
+          // CRITICAL FIX: Emit presence update after marking offline
           this.emitPresenceUpdate(userId);
 
           // 🐛 BUG FIX #1: Close all open database sessions for this advisor
-          console.log(`[AdvisorPresence] 🔒 Closing all open sessions for ${userId}`);
+          console.log(`[AdvisorPresence] 🔒 Closing all open sessions for ${userId} (timeout)`);
           this.closeAdvisorSessions(userId).catch(error => {
             console.error(`[AdvisorPresence] ❌ Error closing sessions for ${userId}:`, error);
           });
 
-          // CRITICAL FIX: Return chats in 'active' status (POR TRABAJAR) back to queue
-          // Chats in 'attending' status (TRABAJANDO) stay with the advisor
+          // POR TRABAJAR (active) → vuelven a cola para otros asesores
+          // TRABAJANDO (attending) → se quedan con el asesor hasta que vuelva
+          console.log(`[AdvisorPresence] 🔄 OFFLINE - POR TRABAJAR van a cola, TRABAJANDO quedan con asesor`);
           this.returnActiveChatsToQueue(userId).catch(error => {
             console.error(`[AdvisorPresence] ❌ Error returning active chats to queue for ${userId}:`, error);
           });
-
-          return;
+        } else {
+          console.log(`[AdvisorPresence] ✅ ${userId} reconnected before timeout - staying ONLINE`);
+          this.offlineTimeouts.delete(userId);
         }
+      }, 5000); // 5 second grace period
 
-        console.log(`[AdvisorPresence] ⚠️ ${userId} all connections closed - scheduling offline in 5s...`);
-
-        // Cancel any existing timeout
-        const existingTimeout = this.offlineTimeouts.get(userId);
-        if(existingTimeout) {
-          clearTimeout(existingTimeout);
-        }
-
-        // Schedule offline marking after 5 seconds (gives time for reconnection)
-        const timeout = setTimeout(() => {
-          const latest = this.presence.get(userId);
-
-          // Double-check: only mark offline if still at 0 connections
-          if(latest && latest.activeConnections === 0) {
-            this.presence.set(userId, {
-              ...latest,
-              isOnline: false,
-              sessionId: undefined,
-              connectedAt: undefined,
-            });
-
-            // Remove session mapping
-            if(latest.sessionId) {
-              this.sessionToUser.delete(latest.sessionId);
-            }
-
-            this.offlineTimeouts.delete(userId);
-            console.log(`[AdvisorPresence] 🔴 ${userId} is now OFFLINE (timeout expired, no reconnection)`);
-
-            // CRITICAL FIX: Emit presence update after marking offline
-            this.emitPresenceUpdate(userId);
-
-            // 🐛 BUG FIX #1: Close all open database sessions for this advisor
-            console.log(`[AdvisorPresence] 🔒 Closing all open sessions for ${userId} (timeout)`);
-            this.closeAdvisorSessions(userId).catch(error => {
-              console.error(`[AdvisorPresence] ❌ Error closing sessions for ${userId}:`, error);
-            });
-
-            // CRITICAL FIX: Return chats in 'active' status (POR TRABAJAR) back to queue
-            // Chats in 'attending' status (TRABAJANDO) stay with the advisor
-            this.returnActiveChatsToQueue(userId).catch(error => {
-              console.error(`[AdvisorPresence] ❌ Error returning active chats to queue for ${userId}:`, error);
-            });
-          } else {
-            console.log(`[AdvisorPresence] ✅ ${userId} reconnected before timeout - staying ONLINE`);
-            this.offlineTimeouts.delete(userId);
-          }
-        }, 5000); // 5 second grace period
-
-        this.offlineTimeouts.set(userId, timeout);
-      } else {
-        console.log(`[AdvisorPresence] ⚠️ ${userId} connection closed (${newConnectionCount} remaining)`);
-      }
+      this.offlineTimeouts.set(userId, timeout);
+    } else {
+      console.log(`[AdvisorPresence] ⚠️ ${userId} connection closed (${newConnectionCount} remaining)`);
     }
   }
 
@@ -225,83 +381,166 @@ export class AdvisorPresenceTracker {
 
   /**
    * Update last seen timestamp (heartbeat)
+   * 🐛 BUG FIX: Updated to use PostgreSQL instead of in-memory cache
    */
-   async updateLastSeen(userId: string): void {
-    const current = this.presence.get(userId);
-    if(current && current.isOnline) {
-      current.lastSeen = Date.now();
+  async updateLastSeen(userId: string): Promise<void> {
+    try {
+      await this.pool.query(
+        `UPDATE advisor_presence SET last_seen = $1 WHERE user_id = $2 AND is_online = TRUE`,
+        [Date.now(), userId]
+      );
+    } catch (error) {
+      console.error(`[AdvisorPresence] Error updating last_seen for ${userId}:`, error);
     }
   }
 
   /**
    * Check if advisor is online
-   * IMPORTANT: NOT async - returns boolean directly (no Promise)
+   * Uses in-memory cache for fast synchronous access
+   * Cache is synced from PostgreSQL every 5 seconds
    */
    isOnline(userId: string): boolean {
-    return this.presence.get(userId)?.isOnline ?? false;
+    return this.onlineCache.get(userId) ?? false;
   }
 
   /**
    * Get presence info for a specific advisor
    */
-   getPresence(userId: string): AdvisorPresence | null {
-    return this.presence.get(userId) || null;
+   async getPresence(userId: string): Promise<AdvisorPresence | null> {
+    try {
+      const result = await this.pool.query(
+        `SELECT * FROM advisor_presence WHERE user_id = $1`,
+        [userId]
+      );
+
+      if(result.rows.length === 0) return null;
+
+      const row = result.rows[0];
+      return {
+        userId: row.user_id,
+        isOnline: row.is_online,
+        lastSeen: parseInt(row.last_seen),
+        sessionId: row.session_id,
+        connectedAt: row.connected_at ? parseInt(row.connected_at) : undefined,
+        activeConnections: parseInt(row.active_connections) || 0,
+      };
+    } catch (error) {
+      console.error(`[AdvisorPresence] Error getting presence for ${userId}:`, error);
+      return null;
+    }
   }
 
   /**
    * Get all advisors presence (for dashboard)
    */
-   getAllPresence(): AdvisorPresence[] {
-    return Array.from(this.presence.values());
+   async getAllPresence(): Promise<AdvisorPresence[]> {
+    try {
+      const result = await this.pool.query(`SELECT * FROM advisor_presence`);
+
+      return result.rows.map(row => ({
+        userId: row.user_id,
+        isOnline: row.is_online,
+        lastSeen: parseInt(row.last_seen),
+        sessionId: row.session_id,
+        connectedAt: row.connected_at ? parseInt(row.connected_at) : undefined,
+        activeConnections: parseInt(row.active_connections) || 0,
+      }));
+    } catch (error) {
+      console.error('[AdvisorPresence] Error getting all presence:', error);
+      return [];
+    }
   }
 
   /**
    * Get only online advisors
    */
-   getOnlineAdvisors(): AdvisorPresence[] {
-    return Array.from(this.presence.values()).filter(p => p.isOnline);
+   async getOnlineAdvisors(): Promise<AdvisorPresence[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT * FROM advisor_presence WHERE is_online = TRUE`
+      );
+
+      return result.rows.map(row => ({
+        userId: row.user_id,
+        isOnline: row.is_online,
+        lastSeen: parseInt(row.last_seen),
+        sessionId: row.session_id,
+        connectedAt: row.connected_at ? parseInt(row.connected_at) : undefined,
+        activeConnections: parseInt(row.active_connections) || 0,
+      }));
+    } catch (error) {
+      console.error('[AdvisorPresence] Error getting online advisors:', error);
+      return [];
+    }
   }
 
   /**
    * Get count of online advisors
    */
-   getOnlineCount(): number {
-    return this.getOnlineAdvisors().length;
+   async getOnlineCount(): Promise<number> {
+    try {
+      const result = await this.pool.query(
+        `SELECT COUNT(*) as count FROM advisor_presence WHERE is_online = TRUE`
+      );
+      return parseInt(result.rows[0].count) || 0;
+    } catch (error) {
+      console.error('[AdvisorPresence] Error getting online count:', error);
+      return 0;
+    }
   }
 
   /**
    * Clean up stale presence (advisors offline for more than X time)
    */
    async cleanupStale(maxOfflineMs: number = 24 * 60 * 60 * 1000): void {
-    const now = Date.now();
-    const toDelete: string[] = [];
+    const cutoffTime = Date.now() - maxOfflineMs;
 
-    for(const [userId, presence] of this.presence.entries()) {
-      if(!presence.isOnline && (now - presence.lastSeen) > maxOfflineMs) {
-        toDelete.push(userId);
+    try {
+      const result = await this.pool.query(
+        `DELETE FROM advisor_presence
+         WHERE is_online = FALSE AND last_seen < $1
+         RETURNING user_id`,
+        [cutoffTime]
+      );
+
+      if(result.rows.length > 0) {
+        console.log(`[AdvisorPresence] 🗑️  Cleaned up ${result.rows.length} stale presence records`);
       }
-    }
-
-    for(const userId of toDelete) {
-      this.presence.delete(userId);
-      console.log(`[AdvisorPresence] 🗑️  Cleaned up stale presence for ${userId}`);
+    } catch (error) {
+      console.error('[AdvisorPresence] Error cleaning up stale presence:', error);
     }
   }
 
   /**
    * Get statistics
    */
-   getStats() {
-    const all = this.getAllPresence();
-    const online = all.filter(p => p.isOnline);
-    const offline = all.filter(p => !p.isOnline);
+   async getStats() {
+    try {
+      const result = await this.pool.query(
+        `SELECT
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE is_online = TRUE) as online,
+          COUNT(*) FILTER (WHERE is_online = FALSE) as offline
+         FROM advisor_presence`
+      );
 
-    return {
-      total: all.length,
-      online: online.length,
-      offline: offline.length,
-      sessions: this.sessionToUser.size,
-    };
+      const row = result.rows[0];
+
+      return {
+        total: parseInt(row.total) || 0,
+        online: parseInt(row.online) || 0,
+        offline: parseInt(row.offline) || 0,
+        sessions: this.sessionToUser.size,
+      };
+    } catch (error) {
+      console.error('[AdvisorPresence] Error getting stats:', error);
+      return {
+        total: 0,
+        online: 0,
+        offline: 0,
+        sessions: this.sessionToUser.size,
+      };
+    }
   }
 
   /**
@@ -534,6 +773,7 @@ export class AdvisorPresenceTracker {
           await crmDb.updateConversationMeta(chat.id, {
             assignedTo: null,  // Clear assignment
             assignedAt: null   // Clear assignment timestamp
+            // status stays as 'active' - no need to change
           });
           console.log(`[AdvisorPresence] ✅ Returned chat ${chat.id} (${chat.phone}) to queue ${chat.queueId}`);
         } catch (error) {
@@ -585,9 +825,10 @@ export class AdvisorPresenceTracker {
           try {
             await crmDb.updateConversationMeta(chat.id, {
               assignedTo: null,  // Clear assignment
-              assignedAt: null   // Clear assignment timestamp
+              assignedAt: null,  // Clear assignment timestamp
+              status: 'active'   // 🐛 FIX: Change status to active (was staying as 'attending')
             });
-            console.log(`[AdvisorPresence] ✅ Returned chat ${chat.id} (${chat.phone}) [${chat.status}] to queue ${chat.queueId}`);
+            console.log(`[AdvisorPresence] ✅ Returned chat ${chat.id} (${chat.phone}) [${chat.status}→active] to queue ${chat.queueId}`);
             returned++;
           } catch (error) {
             console.error(`[AdvisorPresence] ❌ Failed to return chat ${chat.id} to queue:`, error);

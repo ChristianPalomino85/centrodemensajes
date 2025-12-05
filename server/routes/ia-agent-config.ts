@@ -10,6 +10,7 @@ import { requireAuth } from "../auth/middleware";
 
 const router = Router();
 const CONFIG_FILE = path.join(process.cwd(), "data", "ia-agent-config.json");
+const PROMPT_FILE = path.join(process.cwd(), "data", "system-prompt-final.txt");
 
 // Default configuration
 const DEFAULT_CONFIG = {
@@ -122,23 +123,120 @@ const DEFAULT_CONFIG = {
 };
 
 /**
- * Read IA Agent configuration
+ * Read system prompt from external TOON file
  */
-async function readConfig(): Promise<any> {
+async function readSystemPrompt(): Promise<string> {
   try {
-    const data = await fs.readFile(CONFIG_FILE, "utf-8");
-    return JSON.parse(data);
+    return await fs.readFile(PROMPT_FILE, "utf-8");
   } catch (error) {
-    // If file doesn't exist, return default config
-    return DEFAULT_CONFIG;
+    console.error("Error reading system prompt file:", error);
+    return "Eres un asistente virtual útil.";
   }
 }
 
 /**
+ * Write system prompt to external TOON file
+ */
+async function writeSystemPrompt(prompt: string): Promise<void> {
+  await fs.writeFile(PROMPT_FILE, prompt, "utf-8");
+}
+
+/**
+ * Read IA Agent configuration
+ * Loads systemPrompt from external TOON file for display
+ */
+async function readConfig(): Promise<any> {
+  try {
+    const data = await fs.readFile(CONFIG_FILE, "utf-8");
+    const config = JSON.parse(data);
+
+    // Prefer systemPrompt from JSON; fallback to external file (TOON format)
+    if (!config.systemPrompt || typeof config.systemPrompt !== 'string' || !config.systemPrompt.trim()) {
+      config.systemPrompt = await readSystemPrompt();
+    }
+
+    return config;
+  } catch (error) {
+    // If file doesn't exist, return default config
+    const defaultConfig = { ...DEFAULT_CONFIG };
+    defaultConfig.systemPrompt = await readSystemPrompt();
+    return defaultConfig;
+  }
+}
+
+/**
+ * Convert promotions text to TOON format
+ */
+function formatPromotionsToTOON(promotions: string): string {
+  if (!promotions || promotions.trim() === '') {
+    return '';
+  }
+
+  const lines = promotions.trim().split('\n').filter(line => line.trim());
+  let toon = '\n# 🎉 PROMOCIONES VIGENTES\n\n';
+
+  for (const line of lines) {
+    const cleanLine = line.trim().replace(/^[-•*]\s*/, '');
+    if (cleanLine) {
+      toon += `- ${cleanLine}\n`;
+    }
+  }
+
+  toon += '\n⚠️ Menciona estas promociones cuando el cliente pregunte por ofertas, descuentos o promociones.\n';
+
+  return toon;
+}
+
+/**
+ * Inject promotions into system prompt
+ */
+function injectPromotionsIntoPrompt(systemPrompt: string, promotions: string): string {
+  // Remove existing promotions section if present
+  const cleanPrompt = systemPrompt.replace(/\n# 🎉 PROMOCIONES VIGENTES[\s\S]*?(?=\n# |$)/g, '');
+
+  // If no promotions, return clean prompt
+  if (!promotions || promotions.trim() === '') {
+    return cleanPrompt;
+  }
+
+  // Format promotions to TOON
+  const promotionsTOON = formatPromotionsToTOON(promotions);
+
+  // Find best insertion point (after "DATOS EMPRESA" or at the end)
+  const insertPoint = cleanPrompt.indexOf('\n# PRODUCTOS');
+  if (insertPoint !== -1) {
+    return cleanPrompt.slice(0, insertPoint) + promotionsTOON + cleanPrompt.slice(insertPoint);
+  }
+
+  // Fallback: append at the end
+  return cleanPrompt + promotionsTOON;
+}
+
+/**
  * Write IA Agent configuration
+ * Saves systemPrompt to external TOON file (not in JSON)
+ * Integrates currentPromotions into the prompt in TOON format
  */
 async function writeConfig(config: any): Promise<void> {
   config.lastUpdated = new Date().toISOString();
+
+  // Extract and save systemPrompt to external file
+  if (config.systemPrompt) {
+    // If there are promotions, inject them into the prompt
+    let finalPrompt = config.systemPrompt;
+    if (config.currentPromotions) {
+      finalPrompt = injectPromotionsIntoPrompt(config.systemPrompt, config.currentPromotions);
+      console.log('[IAAgentConfig] Promotions injected into system prompt');
+    }
+
+    await writeSystemPrompt(finalPrompt);
+    // Keep prompt in JSON too so panel refleja cambios
+    config.systemPrompt = finalPrompt;
+  }
+
+  // Keep currentPromotions in JSON for display in panel
+  // (it's already in config, no need to delete it)
+
   await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
 }
 

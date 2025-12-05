@@ -44,6 +44,7 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
         phone: conversation.phone,
         contactName: conversation.contactName ?? null,
         lastMessageAt: conversation.lastMessageAt,
+        lastClientMessageAt: conversation.lastClientMessageAt ?? null,  // Para ventana de 24h de WhatsApp
         lastMessagePreview: conversation.lastMessagePreview ?? null,
         unread: conversation.unread,
         status: conversation.status,
@@ -466,6 +467,7 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
         assignedTo: null,  // Quitar el asesor asignado
         queueId: targetId, // Asignar a la cola
         status: "active",  // Estado activo (EN COLA)
+        transferredFrom: currentAdvisorId, // Marcar origen para métricas (trans out/in)
       });
       console.log(`[CRM] ✅ Conversation ${conversation.id} transferred to queue: ${displayName} (${targetId})`);
     } else {
@@ -496,10 +498,8 @@ export function createConversationsRouter(socketManager: CrmRealtimeManager, bit
     // Track conversation transfer in metrics (only for advisor transfers)
     // This will create TWO metrics: transfer_out (current advisor) and transfer_in (receiving advisor)
     if (type === "advisor") {
-      metricsTracker.transferConversation(conversation.id, currentAdvisorId, targetId, {
-        queueId: conversation.queueId || undefined,
-        channelType: conversation.channel as any,
-        channelId: conversation.channelConnectionId || undefined,
+      await metricsTracker.transferConversation(conversation.id, currentAdvisorId, targetId, {
+        queueId: conversation.queueId || null,
       });
     }
 

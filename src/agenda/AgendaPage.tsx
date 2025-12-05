@@ -100,7 +100,34 @@ const CONTACT_COLUMNS: ColumnDefinition[] = [
   }},
   { id: "stencil", label: "Stencil", defaultVisible: true, getValue: (e) => {
     const c = e as BitrixContact;
-    return c.UF_CRM_1565801603901 || "—";
+    const value = c.UF_CRM_1565801603901;
+    if (!value) return "—";
+    // Mapeo de IDs de lista de Bitrix24 (campo UF_CRM_1565801603901)
+    const mapping: Record<string, string> = {
+      "81232": "ACTIVA OCTUBRE",
+      "80162": "ACTIVA SEPTIEMBRE",
+      "80362": "ACTIVA AGOSTO",
+      "86718": "ACTIVA JULIO",
+      "60786": "INCORPORACION ACTIVA",
+      "27698": "EGRESO",
+      "27700": "PASIVA",
+      "75988": "CONGELADA",
+      "78632": "POR REACTIVAR",
+      "96322": "REACTIVACION CONGELADAS",
+    };
+    return mapping[String(value)] || String(value);
+  }},
+  { id: "autorizaPublicidad", label: "Autoriza Publicidad", defaultVisible: true, getValue: (e) => {
+    const c = e as BitrixContact;
+    const value = c.UF_CRM_1753421555;
+    if (!value) return "—";
+    // Mapeo de IDs de lista de Bitrix24 (campo UF_CRM_1753421555)
+    const mapping: Record<string, string> = {
+      "96420": "Si",
+      "96422": "No",
+      "96424": "Por confirmar",
+    };
+    return mapping[String(value)] || String(value);
   }},
 ];
 
@@ -143,6 +170,17 @@ const LEAD_COLUMNS: ColumnDefinition[] = [
     if (!l.DATE_CREATE) return "—";
     return new Date(l.DATE_CREATE).toLocaleDateString("es-PE");
   }},
+  { id: "autorizaPublicidad", label: "Autoriza Publicidad", defaultVisible: true, getValue: (e) => {
+    const l = e as BitrixLead;
+    const value = l.UF_CRM_1749101575;
+    if (!value) return "—";
+    // Mapeo de IDs de lista de Bitrix24 (campo UF_CRM_1749101575)
+    const mapping: Record<string, string> = {
+      "96130": "Si",
+      "96132": "No",
+    };
+    return mapping[String(value)] || String(value);
+  }},
 ];
 
 export default function AgendaPage() {
@@ -159,6 +197,8 @@ export default function AgendaPage() {
   const [department, setDepartment] = useState("");
   const [contactType, setContactType] = useState("");
   const [company, setCompany] = useState("");
+  const [stencil, setStencil] = useState("");
+  const [autorizaPublicidad, setAutorizaPublicidad] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -193,7 +233,7 @@ export default function AgendaPage() {
     return columns.filter(col => col.defaultVisible).map(col => col.id);
   });
 
-  const limit = 50;
+  const limit = 100;
 
   // Obtener columnas actuales según el tipo de entidad
   const currentColumns = entityType === "contact" ? CONTACT_COLUMNS : LEAD_COLUMNS;
@@ -220,6 +260,27 @@ export default function AgendaPage() {
     "Colaborador",
     "Cliente",
     "Proveedor",
+  ];
+
+  // Opciones de Stencil (IDs de lista de Bitrix24)
+  const stencilOptions = [
+    { id: "81232", label: "ACTIVA OCTUBRE" },
+    { id: "80162", label: "ACTIVA SEPTIEMBRE" },
+    { id: "80362", label: "ACTIVA AGOSTO" },
+    { id: "86718", label: "ACTIVA JULIO" },
+    { id: "60786", label: "INCORPORACION ACTIVA" },
+    { id: "27698", label: "EGRESO" },
+    { id: "27700", label: "PASIVA" },
+    { id: "75988", label: "CONGELADA" },
+    { id: "78632", label: "POR REACTIVAR" },
+    { id: "96322", label: "REACTIVACION CONGELADAS" },
+  ];
+
+  // Opciones de Autoriza Publicidad (IDs de lista de Bitrix24)
+  const autorizaPublicidadOptions = [
+    { id: "96420", label: "Si" },
+    { id: "96422", label: "No" },
+    { id: "96424", label: "Por confirmar" },
   ];
 
   // Guardar preferencias de columnas
@@ -250,6 +311,8 @@ export default function AgendaPage() {
     dept: string,
     type: string,
     comp: string,
+    sten: string,
+    autPub: string,
     isSync = false
   ) => {
     try {
@@ -266,6 +329,8 @@ export default function AgendaPage() {
         ...(dept ? { department: dept } : {}),
         ...(type ? { contactType: type } : {}),
         ...(comp ? { company: comp } : {}),
+        ...(sten ? { stencil: sten } : {}),
+        ...(autPub ? { autorizaPublicidad: autPub } : {}),
       });
 
       const endpoint = entityType === "contact"
@@ -318,32 +383,34 @@ export default function AgendaPage() {
     setDepartment("");
     setContactType("");
     setCompany("");
-    fetchEntities(1, "", "", "", "");
+    setStencil("");
+    setAutorizaPublicidad("");
+    fetchEntities(1, "", "", "", "", "", "");
   }, [entityType, fetchEntities]);
 
   // Initial load
   useEffect(() => {
-    fetchEntities(1, "", "", "", "");
+    fetchEntities(1, "", "", "", "", "", "");
   }, [fetchEntities]);
 
   // Auto-sync every 5 minutes
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchEntities(page, search, department, contactType, company, true);
+      fetchEntities(page, search, department, contactType, company, stencil, autorizaPublicidad, true);
     }, 5 * 60 * 1000); // 5 minutes
 
     return () => clearInterval(interval);
-  }, [page, search, department, contactType, company, fetchEntities]);
+  }, [page, search, department, contactType, company, stencil, autorizaPublicidad, fetchEntities]);
 
   // Search and filter handler with debounce
   useEffect(() => {
     const timer = setTimeout(() => {
       setPage(1);
-      fetchEntities(1, search, department, contactType, company);
+      fetchEntities(1, search, department, contactType, company, stencil, autorizaPublicidad);
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [search, department, contactType, company, fetchEntities]);
+  }, [search, department, contactType, company, stencil, autorizaPublicidad, fetchEntities]);
 
   const handleSendTemplate = (entity: BitrixEntity) => {
     setSelectedEntity(entity);
@@ -351,14 +418,14 @@ export default function AgendaPage() {
   };
 
   const handleRefresh = () => {
-    fetchEntities(page, search, department, contactType, company, true);
+    fetchEntities(page, search, department, contactType, company, stencil, autorizaPublicidad, true);
   };
 
   const handlePrevPage = () => {
     if (page > 1) {
       const newPage = page - 1;
       setPage(newPage);
-      fetchEntities(newPage, search, department, contactType, company);
+      fetchEntities(newPage, search, department, contactType, company, stencil, autorizaPublicidad);
     }
   };
 
@@ -366,7 +433,7 @@ export default function AgendaPage() {
     if (hasMore) {
       const newPage = page + 1;
       setPage(newPage);
-      fetchEntities(newPage, search, department, contactType, company);
+      fetchEntities(newPage, search, department, contactType, company, stencil, autorizaPublicidad);
     }
   };
 
@@ -375,6 +442,8 @@ export default function AgendaPage() {
     setDepartment("");
     setContactType("");
     setCompany("");
+    setStencil("");
+    setAutorizaPublicidad("");
     setPage(1);
   };
 
@@ -382,6 +451,8 @@ export default function AgendaPage() {
     let count = 0;
     if (search) count++;
     if (department) count++;
+    if (stencil) count++;
+    if (autorizaPublicidad) count++;
     if (contactType) count++;
     if (company) count++;
     return count;
@@ -415,6 +486,64 @@ export default function AgendaPage() {
     if (diff < 60) return "Hace un momento";
     if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
     return lastSync.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
+  };
+
+  // Helper para obtener el badge compacto de autoriza publicidad (para la tabla)
+  const getPublicidadBadgeCompact = (entity: BitrixEntity) => {
+    const value = entity.UF_CRM_1753421555 || entity.UF_CRM_1749101575;
+    const siIds = ["96420", "96130"];
+    const noIds = ["96422", "96132"];
+
+    if (siIds.includes(String(value))) {
+      return (
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200" title="✓ Autoriza publicidad">
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+        </span>
+      );
+    } else if (noIds.includes(String(value))) {
+      return (
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-600 border border-red-200" title="✗ No autoriza publicidad">
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+        </span>
+      );
+    } else {
+      return (
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-600 border border-amber-200" title="? Por confirmar">
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg>
+        </span>
+      );
+    }
+  };
+
+  // Helper para obtener el badge de autoriza publicidad
+  const getPublicidadBadge = (entity: BitrixEntity) => {
+    const value = entity.UF_CRM_1753421555 || entity.UF_CRM_1749101575;
+    // Mapeo de IDs: Contactos: 96420=Si, 96422=No, 96424=Por confirmar | Leads: 96130=Si, 96132=No
+    const siIds = ["96420", "96130"];
+    const noIds = ["96422", "96132"];
+
+    if (siIds.includes(String(value))) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-100 text-xs font-medium border border-emerald-400/30" title="Autoriza recibir publicidad">
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+          Publicidad
+        </span>
+      );
+    } else if (noIds.includes(String(value))) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 text-red-100 text-xs font-medium border border-red-400/30" title="No autoriza recibir publicidad">
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+          No Publicidad
+        </span>
+      );
+    } else {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-100 text-xs font-medium border border-amber-400/30" title="Estado de publicidad por confirmar">
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg>
+          ?
+        </span>
+      );
+    }
   };
 
   return (
@@ -540,6 +669,22 @@ export default function AgendaPage() {
                 </button>
               </span>
             )}
+            {stencil && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+                Stencil: {stencilOptions.find(s => s.id === stencil)?.label || stencil}
+                <button onClick={() => setStencil("")} className="hover:bg-green-200 rounded-full p-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {autorizaPublicidad && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-pink-100 text-pink-700 text-xs font-medium">
+                Publicidad: {autorizaPublicidadOptions.find(a => a.id === autorizaPublicidad)?.label || autorizaPublicidad}
+                <button onClick={() => setAutorizaPublicidad("")} className="hover:bg-pink-200 rounded-full p-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
           </div>
 
           {/* Column Selector (expandable) */}
@@ -580,7 +725,7 @@ export default function AgendaPage() {
 
           {/* Filter Dropdowns (expandable) */}
           {showFilters && (
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
               {/* Department Filter */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -591,7 +736,7 @@ export default function AgendaPage() {
                   onChange={(e) => setDepartment(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white text-slate-800 text-sm"
                 >
-                  <option value="">Todos los departamentos</option>
+                  <option value="">Todos</option>
                   {departments.map((dept) => (
                     <option key={dept} value={dept}>
                       {dept}
@@ -610,10 +755,48 @@ export default function AgendaPage() {
                   onChange={(e) => setContactType(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white text-slate-800 text-sm"
                 >
-                  <option value="">Todos los tipos</option>
+                  <option value="">Todos</option>
                   {contactTypes.map((type) => (
                     <option key={type} value={type}>
                       {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Stencil Filter */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Stencil
+                </label>
+                <select
+                  value={stencil}
+                  onChange={(e) => setStencil(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white text-slate-800 text-sm"
+                >
+                  <option value="">Todos</option>
+                  {stencilOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Autoriza Publicidad Filter */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Autoriza Publicidad
+                </label>
+                <select
+                  value={autorizaPublicidad}
+                  onChange={(e) => setAutorizaPublicidad(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white text-slate-800 text-sm"
+                >
+                  <option value="">Todos</option>
+                  {autorizaPublicidadOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
                     </option>
                   ))}
                 </select>
@@ -626,7 +809,7 @@ export default function AgendaPage() {
                 </label>
                 <input
                   type="text"
-                  placeholder="Filtrar por empresa..."
+                  placeholder="Filtrar..."
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white text-slate-800 text-sm placeholder-slate-400"
@@ -694,7 +877,10 @@ export default function AgendaPage() {
                           {getFullName(entity).charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <p className="font-semibold text-slate-800">{getFullName(entity)}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-slate-800">{getFullName(entity)}</p>
+                            {getPublicidadBadgeCompact(entity)}
+                          </div>
                           <p className="text-xs text-slate-500">ID: {entity.ID}</p>
                         </div>
                       </div>
@@ -834,7 +1020,10 @@ export default function AgendaPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-bold text-white">Seleccionar conversación</h3>
-                  <p className="text-green-100 text-sm">{getFullName(phoneSelectEntity)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-green-100 text-sm">{getFullName(phoneSelectEntity)}</p>
+                    {getPublicidadBadge(phoneSelectEntity)}
+                  </div>
                 </div>
                 <button
                   onClick={() => {
@@ -913,7 +1102,10 @@ export default function AgendaPage() {
                   <h3 className="text-xl font-bold text-white">
                     Detalles Completos - {entityType === "contact" ? "Contacto" : "Prospecto"}
                   </h3>
-                  <p className="text-purple-100 text-sm mt-1">{getFullName(detailsEntity)} (ID: {detailsEntity.ID})</p>
+                  <div className="flex items-center gap-3 mt-1">
+                    <p className="text-purple-100 text-sm">{getFullName(detailsEntity)} (ID: {detailsEntity.ID})</p>
+                    {getPublicidadBadge(detailsEntity)}
+                  </div>
                 </div>
                 <button
                   onClick={() => {
@@ -995,7 +1187,9 @@ export default function AgendaPage() {
                       'UF_CRM_67D702957E80A': 'Tipo de Contacto',
                       'UF_CRM_68121FB2B841A': 'Departamento',
                       'UF_CRM_1565801603901': 'Stencil',
-                      'UF_CRM_1662413427': 'Departamentos'
+                      'UF_CRM_1662413427': 'Departamentos',
+                      'UF_CRM_1753421555': 'Autoriza Publicidad (Contacto)',
+                      'UF_CRM_1749101575': 'Autoriza Publicidad (Prospecto)'
                     };
                     fieldName = fieldLabels[key] || key;
 

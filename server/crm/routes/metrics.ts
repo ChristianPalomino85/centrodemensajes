@@ -50,11 +50,12 @@ export function createMetricsRouter() {
    */
   router.get("/kpis", async (req, res) => {
     try {
-      const { startDate, endDate, advisorId } = req.query;
+      const { startDate, endDate, advisorId, phoneNumberId } = req.query;
 
       const start = startDate ? parseInt(startDate as string, 10) : undefined;
       const end = endDate ? parseInt(endDate as string, 10) : undefined;
       const advisor = advisorId as string | undefined;
+      const phoneNumId = phoneNumberId as string | undefined;
 
       // For superior roles (admin, supervisor, gerencia), show ALL metrics by default
       // For asesores, show only their own metrics
@@ -76,7 +77,7 @@ export function createMetricsRouter() {
         targetAdvisor = req.user?.userId || "unknown";
       }
 
-      const kpis = await metricsTracker.calculateKPIs(targetAdvisor, start, end);
+      const kpis = await metricsTracker.calculateKPIs(targetAdvisor, start, end, phoneNumId);
 
       res.json({ kpis, advisorId: targetAdvisor, showingAll: targetAdvisor === undefined });
     } catch (error) {
@@ -415,13 +416,16 @@ export function createMetricsRouter() {
    */
   router.get("/advisors/ranking", async (req, res) => {
     try {
-      const { startDate, endDate } = req.query;
+      const { startDate, endDate, phoneNumberId } = req.query;
 
       const start = startDate ? parseInt(startDate as string, 10) : undefined;
       const end = endDate ? parseInt(endDate as string, 10) : undefined;
+      const phoneNumId = phoneNumberId as string | undefined;
 
-      // Get all metrics
-      const allMetrics = await metricsTracker.getAllMetrics(start, end);
+      // Get all metrics (optionally filtered by WhatsApp business number ID)
+      const allMetrics = phoneNumId
+        ? await metricsTracker.getMetricsByPhoneNumberId(phoneNumId, start, end)
+        : await metricsTracker.getAllMetrics(start, end);
 
       // Get all users first to avoid multiple DB calls
       const allUsers = await adminDb.getAllUsers();
@@ -677,6 +681,96 @@ export function createMetricsRouter() {
       res.json(result);
     } catch (error) {
       console.error("[Metrics] Error fetching campaign tracking:", error);
+      res.status(500).json({
+        error: "server_error",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
+   * GET /metrics/campaign-costs
+   * Calcula costos estimados de campañas masivas a partir de campaign_message_details
+   * Query params (opcionales):
+   *  - startDate / endDate: epoch millis
+   *  - costPerMessage: override costo unitario (USD)
+   */
+  router.get("/campaign-costs", async (req, res) => {
+    try {
+      const now = new Date();
+      const defaultStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const start = req.query.startDate ? parseInt(req.query.startDate as string, 10) : defaultStart;
+      const end = req.query.endDate ? parseInt(req.query.endDate as string, 10) : undefined;
+      // Defaults para Perú: MARKETING 0.0703 USD, otros 0.02 USD
+      const defaultMarketing = 0.0703;
+      const defaultOther = 0.02;
+      const costPerMessage = req.query.costPerMessage ? parseFloat(req.query.costPerMessage as string) : defaultOther; // usa fallback si no se envía
+      const templateName = req.query.templateName ? String(req.query.templateName) : undefined;
+
+      const where: string[] = ["cmd.status IN ('sent','delivered','read','failed')"];
+      const params: any[] = [];
+
+      if (start) {
+        params.push(start);
+        where.push(`cmd.sent_at >= $${params.length}`);
+      }
+      if (end) {
+        params.push(end);
+        where.push(`cmd.sent_at <= $${params.length}`);
+      }
+      if (templateName) {
+        params.push(`%${templateName}%`);
+        where.push(`c.template_name ILIKE $${params.length}`);
+      }
+
+      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+      const query = `
+        SELECT
+          cmd.campaign_id,
+          c.name AS campaign_name,
+          c.template_name AS template_name,
+          COUNT(*) AS total_messages,
+          COUNT(*) FILTER (WHERE cmd.status = 'sent') AS sent_count,
+          COUNT(*) FILTER (WHERE cmd.delivered_at IS NOT NULL) AS delivered_count,
+          COUNT(*) FILTER (WHERE cmd.read_at IS NOT NULL) AS read_count
+        FROM campaign_message_details cmd
+        LEFT JOIN campaigns c ON c.id = cmd.campaign_id
+        ${whereSql}
+        GROUP BY cmd.campaign_id, c.name, c.template_name
+        ORDER BY total_messages DESC
+      `;
+
+      const result = await pool.query(query, params);
+
+      const campaigns = result.rows.map((row) => {
+        const totalMessages = parseInt(row.total_messages || 0);
+        // Si se conoce la categoría de la plantilla, se podría ajustar; hoy usamos defaultMarketing solo si el nombre sugiere marketing
+        const isMarketing = (row.campaign_name || '').toLowerCase().includes('mkt') || (row.campaign_name || '').toLowerCase().includes('marketing');
+        const unitCost = req.query.costPerMessage ? costPerMessage : (isMarketing ? defaultMarketing : defaultOther);
+        return {
+          campaignId: row.campaign_id,
+          campaignName: row.campaign_name || row.campaign_id,
+          templateName: row.template_name || null,
+          totalMessages,
+          sent: parseInt(row.sent_count || 0),
+          delivered: parseInt(row.delivered_count || 0),
+          read: parseInt(row.read_count || 0),
+          cost: totalMessages * unitCost,
+        };
+      });
+
+      const totalCost = campaigns.reduce((sum, c) => sum + c.cost, 0);
+      const totalMessages = campaigns.reduce((sum, c) => sum + c.totalMessages, 0);
+
+      res.json({
+        costPerMessage,
+        totalCost,
+        totalMessages,
+        campaigns,
+      });
+    } catch (error) {
+      console.error("[Metrics] Error fetching campaign costs:", error);
       res.status(500).json({
         error: "server_error",
         message: error instanceof Error ? error.message : "Unknown error",

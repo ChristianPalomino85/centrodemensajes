@@ -4,7 +4,6 @@
  */
 
 import fs from 'fs/promises';
-import path from 'path';
 import { createRequire } from 'module';
 
 // Create require for CommonJS modules
@@ -64,28 +63,57 @@ export async function extractTextFromPDF(pdfPath: string): Promise<string> {
 }
 
 /**
- * Create embedding using OpenAI
+ * Create embedding using OpenAI with retry logic for transient errors
  */
-export async function createEmbedding(text: string, openaiApiKey: string): Promise<number[]> {
-  const response = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${openaiApiKey}`
-    },
-    body: JSON.stringify({
-      input: text,
-      model: 'text-embedding-3-small' // Cheapest and fastest
-    })
-  });
+export async function createEmbedding(text: string, openaiApiKey: string, maxRetries: number = 3): Promise<number[]> {
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`OpenAI Embeddings API error: ${error}`);
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openaiApiKey}`
+        },
+        body: JSON.stringify({
+          input: text,
+          model: 'text-embedding-3-small' // Cheapest and fastest
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const isRetryable = response.status >= 500 || response.status === 429;
+
+        if (isRetryable && attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // Exponential backoff, max 10s
+          console.log(`[RAG] OpenAI error (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.data[0].embedding;
+    } catch (error) {
+      lastError = error as Error;
+
+      // Check if it's a network error that should be retried
+      if (attempt < maxRetries && (error as Error).message?.includes('fetch')) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        console.log(`[RAG] Network error (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      throw error;
+    }
   }
 
-  const data = await response.json();
-  return data.data[0].embedding;
+  throw lastError || new Error('Failed to create embedding after retries');
 }
 
 /**

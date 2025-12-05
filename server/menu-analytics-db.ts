@@ -58,23 +58,44 @@ export async function saveMenuOptionSelection(data: {
 /**
  * Get menu option statistics
  */
-export async function getMenuOptionStats(): Promise<MenuOptionStats[]> {
+export async function getMenuOptionStats(options?: {
+  startDate?: number;
+  endDate?: number;
+}): Promise<MenuOptionStats[]> {
   try {
+    let query = `SELECT
+      node_id,
+      option_id,
+      option_label as option_label,
+      COUNT(*)::text as count
+     FROM menu_option_selections`;
+
+    const params: any[] = [];
+    const whereClauses: string[] = [];
+
+    if (options?.startDate) {
+      whereClauses.push(`selected_at >= to_timestamp($${params.length + 1} / 1000.0)`);
+      params.push(options.startDate);
+    }
+
+    if (options?.endDate) {
+      whereClauses.push(`selected_at <= to_timestamp($${params.length + 1} / 1000.0)`);
+      params.push(options.endDate);
+    }
+
+    if (whereClauses.length > 0) {
+      query += ` WHERE ${whereClauses.join(' AND ')}`;
+    }
+
+    query += ` GROUP BY node_id, option_id, option_label
+     ORDER BY COUNT(*) DESC`;
+
     const result = await pool.query<{
       node_id: string;
       option_id: string;
       option_label: string;
       count: string;
-    }>(
-      `SELECT
-        node_id,
-        option_id,
-        option_label as option_label,
-        COUNT(*)::text as count
-       FROM menu_option_selections
-       GROUP BY node_id, option_id, option_label
-       ORDER BY COUNT(*) DESC`
-    );
+    }>(query, params);
 
     return result.rows.map((row: any) => ({
       nodeId: row.node_id,

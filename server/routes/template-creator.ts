@@ -1,8 +1,5 @@
 import express from 'express';
-import { requireAuth } from '../auth/middleware';
 import { requireSupervisor } from '../middleware/roles';
-import fs from 'fs/promises';
-import path from 'path';
 
 const router = express.Router();
 

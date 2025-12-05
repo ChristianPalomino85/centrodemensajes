@@ -44,6 +44,8 @@ import { EndFlowNode } from './flow/components/nodes/EndFlowNode';
 import { StartNode } from './flow/components/nodes/StartNode';
 import { QuestionNode } from './flow/components/nodes/QuestionNode';
 import { ValidationNode } from './flow/components/nodes/ValidationNode';
+import { ValidationBitrixNode } from './flow/components/nodes/ValidationBitrixNode';
+import { ConditionNode } from './flow/components/nodes/ConditionNode';
 import { CustomEdge } from './flow/components/edges/CustomEdge';
 import {
   Target,
@@ -64,6 +66,8 @@ import {
   Bot,
   Wrench,
   Flag,
+  GitBranch,
+  Database,
 } from 'lucide-react';
 
 const NODE_TYPES: Record<string, ComponentType<NodeProps<RuntimeNode>>> = {
@@ -74,6 +78,8 @@ const NODE_TYPES: Record<string, ComponentType<NodeProps<RuntimeNode>>> = {
   message: MessageNode,
   question: QuestionNode,
   validation: ValidationNode,
+  validation_bitrix: ValidationBitrixNode,
+  condition: ConditionNode,
   action: ActionNode,
   end: EndFlowNode,
 };
@@ -392,15 +398,20 @@ function ReactFlowCanvasInner(props: ReactFlowCanvasProps) {
       'message',
       'buttons',
       'question',
+      'condition',
       'attachment',
       'webhook_out',
       'webhook_in',
+      'bitrix_crm',
+      'bitrix_create',
       'transfer',
       'handoff',
       'scheduler',
       'delay',
       'validation',
+      'validation_bitrix',
       'ia_rag',
+      'ia_agent',
       'tool',
       'end',
     ],
@@ -571,9 +582,9 @@ function QuickCreatePopover({ position, options, onSelect, onDismiss }: QuickCre
   const categorizedOptions = {
     estructura: options.filter(opt => opt === 'menu'),
     mensajes: options.filter(opt => ['message', 'buttons', 'question', 'attachment'].includes(opt)),
-    integraciones: options.filter(opt => ['webhook_out', 'webhook_in', 'bitrix_crm'].includes(opt)),
-    logica: options.filter(opt => ['validation', 'validation_bitrix', 'scheduler', 'handoff', 'transfer'].includes(opt)),
-    ia: options.filter(opt => ['ia_rag', 'tool'].includes(opt)),
+    integraciones: options.filter(opt => ['webhook_out', 'webhook_in', 'bitrix_crm', 'bitrix_create'].includes(opt)),
+    logica: options.filter(opt => ['condition', 'validation', 'validation_bitrix', 'scheduler', 'handoff', 'transfer'].includes(opt)),
+    ia: options.filter(opt => ['ia_rag', 'ia_agent', 'tool'].includes(opt)),
     control: options.filter(opt => ['delay', 'end'].includes(opt)),
   };
 
@@ -691,12 +702,18 @@ function renderOptionLabel(option: ConnectionCreationKind): React.ReactNode {
       return <span className="flex items-center gap-2"><CheckSquare className="w-4 h-4" /> Botones</span>;
     case 'question':
       return <span className="flex items-center gap-2"><HelpCircle className="w-4 h-4" /> Pregunta al cliente</span>;
+    case 'condition':
+      return <span className="flex items-center gap-2"><GitBranch className="w-4 h-4" /> Condicional</span>;
     case 'attachment':
       return <span className="flex items-center gap-2"><Paperclip className="w-4 h-4" /> Adjunto</span>;
     case 'webhook_out':
       return <span className="flex items-center gap-2"><Webhook className="w-4 h-4" /> Webhook OUT</span>;
     case 'webhook_in':
       return <span className="flex items-center gap-2"><Download className="w-4 h-4" /> Webhook IN</span>;
+    case 'bitrix_crm':
+      return <span className="flex items-center gap-2"><Database className="w-4 h-4" /> Bitrix CRM</span>;
+    case 'bitrix_create':
+      return <span className="flex items-center gap-2"><Database className="w-4 h-4" /> Bitrix (legacy)</span>;
     case 'transfer':
       return <span className="flex items-center gap-2"><UserPlus className="w-4 h-4" /> Transferir</span>;
     case 'handoff':
@@ -706,9 +723,13 @@ function renderOptionLabel(option: ConnectionCreationKind): React.ReactNode {
     case 'delay':
       return <span className="flex items-center gap-2"><Timer className="w-4 h-4" /> Delay (Espera)</span>;
     case 'validation':
+      return <span className="flex items-center gap-2"><Shield className="w-4 h-4" /> Validación</span>;
+    case 'validation_bitrix':
       return <span className="flex items-center gap-2"><Shield className="w-4 h-4" /> Validación Bitrix</span>;
     case 'ia_rag':
       return <span className="flex items-center gap-2"><Bot className="w-4 h-4" /> IA · RAG</span>;
+    case 'ia_agent':
+      return <span className="flex items-center gap-2"><Bot className="w-4 h-4" /> Agente IA</span>;
     case 'tool':
       return <span className="flex items-center gap-2"><Wrench className="w-4 h-4" /> Tool/Acción externa</span>;
     case 'end':

@@ -145,6 +145,10 @@ export class CrmRealtimeGateway {
       });
       socket.on("pong", () => {
         client.isAlive = true;
+        // 🐛 BUG FIX: Update last_seen on heartbeat to prevent ghost connections
+        if (client.userId) {
+          advisorPresence.updateLastSeen(client.userId);
+        }
       });
       socket.on("message", (data) => {
         this.handleClientMessage(client, data);
@@ -192,6 +196,11 @@ export class CrmRealtimeGateway {
   }
 
    async emitMessageUpdate(payload: CRMEmitMessage) {
+    console.log(`[CRM WS] Emitting message UPDATE to ${this.clients.size} clients:`, {
+      messageId: payload.message.id,
+      status: payload.message.status,
+      convId: payload.message.convId,
+    });
     this.broadcast("crm:msg:update", payload);
   }
 

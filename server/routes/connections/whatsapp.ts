@@ -5,7 +5,6 @@ import {
   sendWhatsAppMessage,
   type WhatsAppCheckResult,
 } from "../../services/whatsapp";
-import { adminDb } from "../../admin-db";
 import { Pool } from 'pg';
 
 interface SavePayload {

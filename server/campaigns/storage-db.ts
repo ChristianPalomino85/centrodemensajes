@@ -253,6 +253,12 @@ export class CampaignStorageDB {
       params.push(extraData.clickedButton);
     }
 
+    if (extraData?.messageId) {
+      paramCount++;
+      query += `, message_id = COALESCE(message_id, $${paramCount})`;
+      params.push(extraData.messageId);
+    }
+
     if (extraData?.failReason !== undefined) {
       paramCount++;
       query += `, error_message = $${paramCount}`;

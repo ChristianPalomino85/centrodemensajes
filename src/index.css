@@ -314,3 +314,69 @@ body{
 .animate-slide-in-right {
   animation: slide-in-right 0.3s ease-out;
 }
+
+/* ===== WINDOW BADGE AVATAR ANIMATIONS ===== */
+/* Animación de pulso suave para ADVERTENCIA (6-12h) */
+@keyframes pulse-slow {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.9;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s ease-in-out infinite;
+}
+
+/* Animación de pulso medio para URGENTE (1-6h) */
+@keyframes pulse-medium {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.85;
+  }
+}
+
+.animate-pulse-medium {
+  animation: pulse-medium 1.2s ease-in-out infinite;
+}
+
+/* Animación de pulso rápido con brillo para CRÍTICO (<1h) */
+@keyframes pulse-fast {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  50% {
+    transform: scale(1.15);
+    box-shadow: 0 0 20px 8px rgba(239, 68, 68, 0.3);
+  }
+}
+
+.animate-pulse-fast {
+  animation: pulse-fast 0.8s ease-in-out infinite;
+}
+
+/* Animación de fade suave para transición icono/tiempo */
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out;
+}
+/* ===== END WINDOW BADGE AVATAR ANIMATIONS ===== */

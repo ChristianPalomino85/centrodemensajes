@@ -212,6 +212,60 @@ export function createBitrixRouter() {
   });
 
   /**
+   * GET /api/bitrix/field-options/:fieldName
+   * Obtiene las opciones de un campo de lista de Bitrix24
+   */
+  router.get("/field-options/:fieldName", async (req, res) => {
+    try {
+      const tokens = readTokens();
+      if (!tokens?.access_token || !tokens.domain) {
+        res.status(401).json({ error: "not_authorized" });
+        return;
+      }
+
+      const { fieldName } = req.params;
+      const entityType = req.query.entity === "lead" ? "lead" : "contact";
+
+      const baseUrl = tokens.domain.startsWith("http") ? tokens.domain : `https://${tokens.domain}`;
+      const endpoint = entityType === "lead"
+        ? `${baseUrl.replace(/\/$/, "")}/rest/crm.lead.userfield.list.json`
+        : `${baseUrl.replace(/\/$/, "")}/rest/crm.contact.userfield.list.json`;
+
+      const response = await httpRequest<{ result?: any[] }>(endpoint, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+        timeoutMs: 15000,
+      });
+
+      if (!response.ok || !response.body?.result) {
+        res.status(500).json({ error: "bitrix_request_failed" });
+        return;
+      }
+
+      const field = response.body.result.find((f: any) => f.FIELD_NAME === fieldName);
+      if (!field) {
+        res.status(404).json({ error: "field_not_found", availableFields: response.body.result.map((f: any) => f.FIELD_NAME) });
+        return;
+      }
+
+      // Return field info with list options
+      res.json({
+        fieldName: field.FIELD_NAME,
+        label: field.EDIT_FORM_LABEL || field.LIST_COLUMN_LABEL || field.FIELD_NAME,
+        type: field.USER_TYPE_ID,
+        options: field.LIST?.map((item: any) => ({
+          id: item.ID,
+          value: item.VALUE,
+          sort: item.SORT,
+        })) || [],
+      });
+    } catch (error) {
+      console.error("[Bitrix] Error getting field options:", error);
+      res.status(500).json({ error: "failed_to_get_field_options" });
+    }
+  });
+
+  /**
    * GET /api/bitrix/contacts
    * Lista contactos de Bitrix24 con paginación y búsqueda
    * Query params:
@@ -236,6 +290,8 @@ export function createBitrixRouter() {
       const department = String(req.query.department || "").trim();
       const contactType = String(req.query.contactType || "").trim();
       const company = String(req.query.company || "").trim();
+      const stencil = String(req.query.stencil || "").trim();
+      const autorizaPublicidad = String(req.query.autorizaPublicidad || "").trim();
 
       const baseUrl = tokens.domain.startsWith("http") ? tokens.domain : `https://${tokens.domain}`;
       const start = (page - 1) * limit;
@@ -266,6 +322,7 @@ export function createBitrixRouter() {
         'UF_CRM_1745461823632',  // Provincia
         'UF_CRM_1745461836705',  // Distrito
         'UF_CRM_1715014786',     // Líder
+        'UF_CRM_1753421555',     // Autoriza Publicidad (¿Te gustaría recibir novedades?)
         'DATE_CREATE',
         'DATE_MODIFY',
       ];
@@ -287,6 +344,12 @@ export function createBitrixRouter() {
       }
       if (company) {
         filterParams.push(`filter[%COMPANY_TITLE]=${encodeURIComponent(company)}`);
+      }
+      if (stencil) {
+        filterParams.push(`filter[UF_CRM_1565801603901]=${encodeURIComponent(stencil)}`);
+      }
+      if (autorizaPublicidad) {
+        filterParams.push(`filter[UF_CRM_1753421555]=${encodeURIComponent(autorizaPublicidad)}`);
       }
 
       // Combine filter params
@@ -485,6 +548,7 @@ export function createBitrixRouter() {
         'STATUS_ID',
         'SOURCE_ID',
         'UF_CRM_1662413427', // Departamentos
+        'UF_CRM_1749101575', // Autoriza Publicidad
         'ASSIGNED_BY_ID',
         'DATE_CREATE',
         'DATE_MODIFY',

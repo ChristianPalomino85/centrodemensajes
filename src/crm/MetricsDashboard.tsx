@@ -77,10 +77,18 @@ interface AdvisorRanking {
 
 type DateFilter = "today" | "week" | "month" | "custom";
 
+interface WhatsAppNumber {
+  numberId: string;
+  phoneNumber: string;
+  displayName: string;
+}
+
 export default function MetricsDashboard() {
   const [dateFilter, setDateFilter] = useState<DateFilter>("week");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
+  const [phoneNumberFilter, setPhoneNumberFilter] = useState<string>("all");
+  const [whatsappNumbers, setWhatsappNumbers] = useState<WhatsAppNumber[]>([]);
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [trendData, setTrendData] = useState<TrendData[]>([]);
   const [advisorRanking, setAdvisorRanking] = useState<AdvisorRanking[]>([]);
@@ -132,6 +140,7 @@ export default function MetricsDashboard() {
       const params = new URLSearchParams();
       if (startDate) params.set("startDate", startDate.toString());
       if (endDate) params.set("endDate", endDate.toString());
+      if (phoneNumberFilter !== "all") params.set("phoneNumberId", phoneNumberFilter);
 
       // Load KPIs
       const kpisResponse = await fetch(apiUrl(`/api/crm/metrics/kpis?${params.toString()}`), {
@@ -168,7 +177,7 @@ export default function MetricsDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [dateFilter, getDateRange]);
+  }, [dateFilter, getDateRange, phoneNumberFilter]);
 
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
 
@@ -177,7 +186,7 @@ export default function MetricsDashboard() {
     setLastUpdate(new Date());
   }, [loadMetrics]);
 
-  // Load reliable metrics date on mount
+  // Load reliable metrics date and WhatsApp numbers on mount
   useEffect(() => {
     const loadReliableDate = async () => {
       try {
@@ -192,7 +201,29 @@ export default function MetricsDashboard() {
         console.error('Error loading reliable since date:', error);
       }
     };
+
+    const loadWhatsAppNumbers = async () => {
+      try {
+        const response = await fetch(apiUrl('/api/admin/whatsapp-numbers'), {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.numbers && Array.isArray(data.numbers)) {
+            setWhatsappNumbers(data.numbers.map((n: any) => ({
+              numberId: n.numberId,
+              displayName: n.displayName,
+              phoneNumber: n.phoneNumber,
+            })));
+          }
+        }
+      } catch (error) {
+        console.error('Error loading WhatsApp numbers:', error);
+      }
+    };
+
     loadReliableDate();
+    loadWhatsAppNumbers();
   }, []);
 
   const formatTime = (ms: number) => {
@@ -368,6 +399,26 @@ export default function MetricsDashboard() {
                 className="px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-emerald-400 focus:ring focus:ring-emerald-100"
               />
             </div>
+          )}
+
+          {/* WhatsApp Number Filter */}
+          {whatsappNumbers.length > 0 && (
+            <>
+              <div className="h-6 w-px bg-slate-300"></div>
+              <label className="text-sm font-medium text-slate-700">Número WSP:</label>
+              <select
+                value={phoneNumberFilter}
+                onChange={(e) => setPhoneNumberFilter(e.target.value)}
+                className="px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-emerald-400 focus:ring focus:ring-emerald-100"
+              >
+                <option value="all">Todos los números</option>
+                {whatsappNumbers.map((num) => (
+                  <option key={num.numberId} value={num.numberId}>
+                    {num.displayName} ({num.phoneNumber})
+                  </option>
+                ))}
+              </select>
+            </>
           )}
         </div>
       </div>

@@ -9,7 +9,7 @@ import { randomUUID } from 'crypto';
 // ============================================================================
 // OPTIMIZED CONNECTION POOL - Using environment variables
 // ============================================================================
-const pool = new Pool({
+export const pool = new Pool({
   user: process.env.POSTGRES_USER || 'whatsapp_user',
   host: process.env.POSTGRES_HOST || 'localhost',
   database: process.env.POSTGRES_DB || 'flowbuilder_crm',
@@ -31,7 +31,7 @@ pool.on('error', (err) => {
 // OPTIMIZED QUERIES - Only select necessary columns
 // ============================================================================
 const CONVERSATION_COLUMNS = `
-  id, phone, contact_name, bitrix_id, bitrix_document,
+  id, phone, contact_name, bitrix_id, bitrix_document, autoriza_publicidad,
   avatar_url, last_message_at, last_message_preview, unread,
   status, assigned_to, assigned_at, queued_at, queue_id,
   channel, channel_connection_id, phone_number_id, display_number,
@@ -67,7 +67,14 @@ export class PostgresCRMDatabase {
   async getConversationByIdAsync(id: string): Promise<Conversation | null> {
     try {
       const result = await pool.query(
-        `SELECT ${CONVERSATION_COLUMNS} FROM crm_conversations WHERE id = $1`,
+        `SELECT ${CONVERSATION_COLUMNS},
+         (SELECT MAX(timestamp)
+          FROM crm_messages
+          WHERE conversation_id = crm_conversations.id
+            AND direction = 'incoming'
+            AND type != 'system'
+            AND type != 'event') as last_client_message_at
+         FROM crm_conversations WHERE id = $1`,
         [id]
       );
 
@@ -144,7 +151,13 @@ export class PostgresCRMDatabase {
     try {
       console.log('[PostgresCRM] ⚡ EXECUTING NEW CODE - NO FILTER VERSION');
       const result = await pool.query(
-        `SELECT ${CONVERSATION_COLUMNS}
+        `SELECT ${CONVERSATION_COLUMNS},
+         (SELECT MAX(timestamp)
+          FROM crm_messages
+          WHERE conversation_id = crm_conversations.id
+            AND direction = 'incoming'
+            AND type != 'system'
+            AND type != 'event') as last_client_message_at
          FROM crm_conversations
          ORDER BY pinned DESC NULLS LAST, last_message_at DESC NULLS LAST`
       );
@@ -158,7 +171,20 @@ export class PostgresCRMDatabase {
       });
       console.log('[PostgresCRM] 📊 By status:', byStatus);
 
-      return result.rows.map(row => this.rowToConversation(row));
+      const conversations = result.rows.map(row => this.rowToConversation(row));
+
+      // DEBUG: Check if lastClientMessageAt is present
+      const sampleConv = conversations.find(c => c.phone === '51936872528');
+      if (sampleConv) {
+        console.log('[PostgresCRM] 🔍 Sample conversation 51936872528:', {
+          phone: sampleConv.phone,
+          lastClientMessageAt: sampleConv.lastClientMessageAt,
+          lastMessageAt: sampleConv.lastMessageAt,
+          hasField: 'lastClientMessageAt' in sampleConv
+        });
+      }
+
+      return conversations;
     } catch (error) {
       console.error('[PostgresCRM] Error getting all conversations:', error);
       return [];
@@ -533,7 +559,7 @@ export class PostgresCRMDatabase {
          ORDER BY created_at ASC`,
         [convId]
       );
-      return result.rows.map(rowToMessage);
+      return result.rows.map(row => this.rowToMessage(row));
     } catch (error) {
       console.error('[PostgresCRM] Error getting messages for conversation:', error);
       return [];
@@ -742,9 +768,11 @@ export class PostgresCRMDatabase {
       contactName: row.contact_name,
       bitrixId: row.bitrix_id,
       bitrixDocument: row.bitrix_document,
+      autorizaPublicidad: row.autoriza_publicidad || null,
       avatarUrl: row.avatar_url,
       createdAt: row.created_at ? parseInt(row.created_at) : 0,
       lastMessageAt: row.last_message_at ? parseInt(row.last_message_at) : 0,
+      lastClientMessageAt: row.last_client_message_at ? parseInt(row.last_client_message_at) : null,
       unread: row.unread || 0,
       status: row.status || 'active',
       lastMessagePreview: row.last_message_preview || '',
@@ -784,6 +812,19 @@ export class PostgresCRMDatabase {
       // AI ANALYSIS FIELD
       aiAnalysis: row.ai_analysis || undefined,
     };
+
+    // DEBUG: Log specific chat for troubleshooting
+    if (row.phone === '51936872528') {
+      console.log('[PostgresCRM] 🔍 DEBUG chat 51936872528:', {
+        phone: row.phone,
+        last_client_message_at_raw: row.last_client_message_at,
+        lastClientMessageAt: row.last_client_message_at ? parseInt(row.last_client_message_at) : null,
+        status: row.status,
+        queue_id: row.queue_id
+      });
+    }
+
+    return conv;
   }
 
   /**
@@ -835,6 +876,8 @@ export class PostgresCRMDatabase {
              closed_reason = 'manual',
              assigned_to = NULL,
              assigned_at = NULL,
+             assigned_to_advisor = NULL,
+             assigned_to_advisor_at = NULL,
              active_advisors = '[]'::jsonb,
              transferred_from = NULL,
              transferred_at = NULL,
@@ -880,13 +923,16 @@ export class PostgresCRMDatabase {
    */
   async assignConversationAsync(convId: string, advisorId: string): Promise<boolean> {
     try {
+      const now = Date.now();
       const result = await pool.query(
         `UPDATE crm_conversations
          SET assigned_to = $1,
              assigned_at = $2,
+             assigned_to_advisor = $1,
+             assigned_to_advisor_at = $2,
              updated_at = $2
          WHERE id = $3 AND status = 'active'`,
-        [advisorId, Date.now(), convId]
+        [advisorId, now, convId]
       );
 
       if (result.rowCount === 0) {
@@ -911,6 +957,8 @@ export class PostgresCRMDatabase {
          SET status = 'attending',
              assigned_to = $1,
              assigned_at = $2,
+             assigned_to_advisor = $1,
+             assigned_to_advisor_at = $2,
              attended_by = COALESCE(attended_by, '[]'::jsonb) || $3::jsonb,
              updated_at = $2
          WHERE id = $4 AND status = 'active'`,
@@ -1133,7 +1181,7 @@ export class PostgresCRMDatabase {
     try {
       const result = await pool.query(
         `UPDATE crm_conversations
-         SET status = 'active',
+         SET status = 'closed',
              assigned_to = NULL,
              assigned_at = NULL,
              updated_at = $1
@@ -1145,11 +1193,27 @@ export class PostgresCRMDatabase {
         [now, now - timeoutMs]
       );
 
-      if (result.rows.length > 0) {
-        console.log(`[Queue] ${result.rows.length} conversations timed out and returned to queue after ${timeoutMinutes} minutes`);
+      const timedOutIds = result.rows.map((r) => r.id as string);
+
+      if (timedOutIds.length > 0) {
+        console.log(`[Queue] ${timedOutIds.length} conversations timed out and were closed after ${timeoutMinutes} minutes`);
+
+        // Insert system message per conversation to avisar al cliente
+        for (const convId of timedOutIds) {
+          try {
+            await this.createSystemEvent(
+              convId,
+              'conversation_timeout',
+              `⏱️ Por inactividad el chat se cerró. Escríbenos cuando gustes y retomamos la atención.`
+            );
+          } catch (err) {
+            console.error(`[Queue] Error creando mensaje de timeout para ${convId}:`, err);
+          }
+        }
       }
 
-      return []; // Return empty for compatibility
+      // Return empty for compatibility (scheduler no espera la lista actualmente)
+      return [];
     } catch (error) {
       console.error('[PostgresCRM] Error checking timeouts:', error);
       return [];

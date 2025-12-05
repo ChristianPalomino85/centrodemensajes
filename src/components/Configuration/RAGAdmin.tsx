@@ -27,8 +27,9 @@ export function RAGAdmin() {
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [validatingKey, setValidatingKey] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string>("");
 
   useEffect(() => {
     loadStatus();
@@ -99,15 +100,22 @@ export function RAGAdmin() {
 
       if (response.ok) {
         const data = await response.json();
-        alert(`✅ Indexación completa: ${data.totalChunks} chunks creados\n💰 Costo: $${data.totalCost.toFixed(4)} USD`);
+        let message = `✅ Indexación completa: ${data.totalChunks} chunks totales`;
+        if (data.indexed > 0) message += `\n📄 ${data.indexed} documento(s) indexado(s)`;
+        if (data.skipped > 0) message += `\n⏭️ ${data.skipped} documento(s) ya indexado(s)`;
+        if (data.totalCost) message += `\n💰 Costo: $${data.totalCost.toFixed(4)} USD`;
+        if (data.errors && data.errors.length > 0) {
+          message += `\n\n⚠️ Errores:\n${data.errors.join('\n')}`;
+        }
+        alert(message);
         loadStatus();
       } else {
         const error = await response.json();
-        alert(`❌ Error: ${error.message}`);
+        alert(`❌ Error: ${error.message || 'Error desconocido'}`);
       }
     } catch (error) {
       console.error("Failed to index documents:", error);
-      alert("❌ Error al indexar documentos");
+      alert(`❌ Error al indexar documentos: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     } finally {
       setIndexing(false);
     }
@@ -165,45 +173,70 @@ export function RAGAdmin() {
     }
   }
 
-  async function handleUploadFile() {
-    if (!selectedFile) {
-      alert("Por favor selecciona un archivo PDF");
+  async function handleUploadFiles() {
+    if (selectedFiles.length === 0) {
+      alert("Por favor selecciona al menos un archivo PDF");
       return;
     }
 
-    if (!selectedFile.name.toLowerCase().endsWith('.pdf')) {
-      alert("Solo se permiten archivos PDF");
+    // Validate all files are PDFs
+    const invalidFiles = selectedFiles.filter(f => !f.name.toLowerCase().endsWith('.pdf'));
+    if (invalidFiles.length > 0) {
+      alert(`Solo se permiten archivos PDF. Archivos inválidos: ${invalidFiles.map(f => f.name).join(', ')}`);
       return;
     }
 
     setUploading(true);
+    const results: { success: string[]; failed: string[] } = { success: [], failed: [] };
+
     try {
-      const formData = new FormData();
-      formData.append('pdf', selectedFile);
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        setUploadProgress(`Subiendo ${i + 1}/${selectedFiles.length}: ${file.name}`);
 
-      const response = await fetch(apiUrl("/api/rag-admin/upload-pdf"), {
-        method: "POST",
-        credentials: "include",
-        body: formData,
-      });
+        const formData = new FormData();
+        formData.append('pdf', file);
 
-      if (response.ok) {
-        const data = await response.json();
-        alert(`✅ Archivo subido: ${data.filename}`);
-        setSelectedFile(null);
-        // Reset file input
-        const fileInput = document.getElementById('pdf-upload') as HTMLInputElement;
-        if (fileInput) fileInput.value = '';
-        loadStatus();
-      } else {
-        const error = await response.json();
-        alert(`❌ Error: ${error.message}`);
+        try {
+          const response = await fetch(apiUrl("/api/rag-admin/upload-pdf"), {
+            method: "POST",
+            credentials: "include",
+            body: formData,
+          });
+
+          if (response.ok) {
+            results.success.push(file.name);
+          } else {
+            const error = await response.json();
+            results.failed.push(`${file.name}: ${error.message}`);
+          }
+        } catch (err) {
+          results.failed.push(`${file.name}: Error de conexión`);
+        }
       }
+
+      // Show summary
+      let message = '';
+      if (results.success.length > 0) {
+        message += `✅ ${results.success.length} archivo(s) subido(s):\n${results.success.join('\n')}\n\n`;
+      }
+      if (results.failed.length > 0) {
+        message += `❌ ${results.failed.length} archivo(s) fallaron:\n${results.failed.join('\n')}`;
+      }
+      alert(message);
+
+      // Reset
+      setSelectedFiles([]);
+      setUploadProgress("");
+      const fileInput = document.getElementById('pdf-upload') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+      loadStatus();
     } catch (error) {
-      console.error("Failed to upload file:", error);
-      alert("❌ Error al subir el archivo");
+      console.error("Failed to upload files:", error);
+      alert("❌ Error al subir los archivos");
     } finally {
       setUploading(false);
+      setUploadProgress("");
     }
   }
 
@@ -374,50 +407,71 @@ export function RAGAdmin() {
 
             <div className="flex items-center gap-2 flex-wrap">
               {/* Upload PDF Button */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <label
                   htmlFor="pdf-upload"
                   className="inline-flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-sm rounded-lg hover:from-emerald-700 hover:to-teal-700 font-medium transition-all shadow-sm cursor-pointer"
                 >
                   <Upload className="w-4 h-4" />
-                  Elegir PDF
+                  Elegir PDFs
                 </label>
                 <input
                   id="pdf-upload"
                   type="file"
                   accept=".pdf,application/pdf"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  multiple
+                  onChange={(e) => {
+                    const files = e.target.files;
+                    if (files) {
+                      setSelectedFiles(Array.from(files));
+                    }
+                  }}
                   className="hidden"
                 />
-                {selectedFile && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-600 truncate max-w-[150px]" title={selectedFile.name}>
-                      {selectedFile.name}
-                    </span>
+                {selectedFiles.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-slate-600 font-medium">
+                        {selectedFiles.length} archivo(s) seleccionado(s):
+                      </span>
+                      <div className="flex flex-wrap gap-1 max-w-[300px]">
+                        {selectedFiles.slice(0, 3).map((file, idx) => (
+                          <span key={idx} className="text-xs bg-slate-100 px-2 py-0.5 rounded truncate max-w-[100px]" title={file.name}>
+                            {file.name}
+                          </span>
+                        ))}
+                        {selectedFiles.length > 3 && (
+                          <span className="text-xs bg-slate-200 px-2 py-0.5 rounded font-medium">
+                            +{selectedFiles.length - 3} más
+                          </span>
+                        )}
+                      </div>
+                    </div>
                     <button
-                      onClick={handleUploadFile}
+                      onClick={handleUploadFiles}
                       disabled={uploading}
                       className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 font-medium transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {uploading ? (
                         <>
                           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                          Subiendo...
+                          {uploadProgress || 'Subiendo...'}
                         </>
                       ) : (
                         <>
                           <Check className="w-4 h-4" />
-                          Subir
+                          Subir {selectedFiles.length > 1 ? `${selectedFiles.length} archivos` : ''}
                         </>
                       )}
                     </button>
                     <button
                       onClick={() => {
-                        setSelectedFile(null);
+                        setSelectedFiles([]);
                         const fileInput = document.getElementById('pdf-upload') as HTMLInputElement;
                         if (fileInput) fileInput.value = '';
                       }}
                       className="text-slate-400 hover:text-slate-600 transition"
+                      title="Limpiar selección"
                     >
                       <X className="w-4 h-4" />
                     </button>

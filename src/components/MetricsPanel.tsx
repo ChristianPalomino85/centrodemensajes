@@ -38,6 +38,8 @@ interface MetricsPanelProps {
   whatsappNumbers?: WhatsAppNumberAssignment[];
 }
 
+type DateFilter = 'today' | 'week' | 'month' | 'all';
+
 export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
   const [stats, setStats] = useState<MetricsStats | null>(null);
   const [metrics, setMetrics] = useState<ConversationMetric[]>([]);
@@ -49,6 +51,7 @@ export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
   // Filter state
   const [channelFilter, setChannelFilter] = useState<ChannelType | 'all'>('all');
   const [numberFilter, setNumberFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
 
   const fetchStats = async () => {
     try {
@@ -105,9 +108,41 @@ export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
     }
   };
 
+  const getDateRange = (): { startDate?: number; endDate?: number } => {
+    const now = Date.now();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+
+    switch (dateFilter) {
+      case 'today':
+        return {
+          startDate: now - oneDayMs,
+          endDate: now,
+        };
+      case 'week':
+        return {
+          startDate: now - 7 * oneDayMs,
+          endDate: now,
+        };
+      case 'month':
+        return {
+          startDate: now - 30 * oneDayMs,
+          endDate: now,
+        };
+      case 'all':
+      default:
+        return {};
+    }
+  };
+
   const fetchMenuStats = async () => {
     try {
-      const response = await fetch(apiUrl('/api/metrics/menu-stats'));
+      const { startDate, endDate } = getDateRange();
+      const params = new URLSearchParams();
+      if (startDate) params.set('startDate', startDate.toString());
+      if (endDate) params.set('endDate', endDate.toString());
+
+      const url = `/api/metrics/menu-stats${params.toString() ? `?${params.toString()}` : ''}`;
+      const response = await fetch(apiUrl(url));
       if (!response.ok) {
         if (response.status === 429) {
           console.warn('Rate limit hit for menu stats');
@@ -154,7 +189,7 @@ export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
     }, 60000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [dateFilter]);
 
   const formatUptime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -345,10 +380,58 @@ export function MetricsPanel({ whatsappNumbers = [] }: MetricsPanelProps) {
         {/* Menu Analytics */}
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 bg-gradient-to-r from-violet-50 to-white p-3">
-            <h3 className="text-sm font-bold text-slate-900">📊 Análisis de Opciones de Menú</h3>
-            <p className="text-xs text-slate-600 mt-0.5">
-              Estadísticas de selecciones de menús y botones por los usuarios
-            </p>
+            <div className="flex items-start justify-between gap-4 mb-2">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">📊 Análisis de Opciones de Menú</h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Estadísticas de selecciones de menús y botones por los usuarios
+                </p>
+              </div>
+            </div>
+            {/* Date Filter for Menu Stats */}
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <span className="text-xs font-medium text-slate-700">Período:</span>
+              <button
+                onClick={() => setDateFilter('today')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                  dateFilter === 'today'
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                Hoy
+              </button>
+              <button
+                onClick={() => setDateFilter('week')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                  dateFilter === 'week'
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                Última Semana
+              </button>
+              <button
+                onClick={() => setDateFilter('month')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                  dateFilter === 'month'
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                Último Mes
+              </button>
+              <button
+                onClick={() => setDateFilter('all')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                  dateFilter === 'all'
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                Todo
+              </button>
+            </div>
           </div>
           <div className="p-4">
             {menuStats.length === 0 ? (

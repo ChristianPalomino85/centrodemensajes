@@ -225,13 +225,22 @@ export class QueueDistributor {
 
         console.log(`[QueueDistributor] ✅ Cola "${queueName}": Chat ${chat.phone} → ${advisorName} (INICIAL)`);
 
-        // Start tracking metrics
-        const metricId = `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        metricsTracker.startConversation(metricId, chat.id, advisorId, {
-          queueId: chat.queueId || undefined,
-          channelType: chat.channel as any,
-          channelId: chat.channelConnectionId || undefined,
-        });
+        // METRICS ONLY: Detect if chat came from another advisor (Asesor → Cola → Asesor)
+        if (chat.transferredFrom) {
+          // Register as transfer in metrics (Trans OUT for previous, Trans IN for new)
+          console.log(`[QueueDistributor METRICS] 📊 Transfer detected: ${chat.transferredFrom} → ${advisorId}`);
+          await metricsTracker.transferConversation(chat.id, chat.transferredFrom, advisorId, {
+            queueId: chat.queueId || null,
+          });
+        } else {
+          // Register as new assignment in metrics
+          const metricId = `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          metricsTracker.startConversation(metricId, chat.id, advisorId, {
+            queueId: chat.queueId || undefined,
+            channelType: chat.channel as any,
+            channelId: chat.channelConnectionId || undefined,
+          });
+        }
 
         // Create system message
         const timestamp = formatEventTimestamp();
@@ -358,13 +367,22 @@ export class QueueDistributor {
 
         console.log(`[QueueDistributor] ✅ Cola "${queueName}": Chat ${chat.phone} → ${advisorName} (POR TRABAJAR)`);
 
-        // Start tracking metrics for this conversation
-        const metricId = `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        metricsTracker.startConversation(metricId, chat.id, advisorId, {
-          queueId: chat.queueId || undefined,
-          channelType: chat.channel as any,
-          channelId: chat.channelConnectionId || undefined,
-        });
+        // METRICS ONLY: Detect if chat came from another advisor (Asesor → Cola → Asesor)
+        if (chat.transferredFrom) {
+          // Register as transfer in metrics (Trans OUT for previous, Trans IN for new)
+          console.log(`[QueueDistributor METRICS] 📊 Transfer detected: ${chat.transferredFrom} → ${advisorId}`);
+          await metricsTracker.transferConversation(chat.id, chat.transferredFrom, advisorId, {
+            queueId: chat.queueId || null,
+          });
+        } else {
+          // Register as new assignment in metrics
+          const metricId = `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          metricsTracker.startConversation(metricId, chat.id, advisorId, {
+            queueId: chat.queueId || undefined,
+            channelType: chat.channel as any,
+            channelId: chat.channelConnectionId || undefined,
+          });
+        }
 
         // Create system message for automatic assignment
         const timestamp = formatEventTimestamp();
@@ -438,13 +456,22 @@ export class QueueDistributor {
 
         console.log(`[QueueDistributor] ✅ Cola "${queueName}": Chat ${chat.phone} → ${advisorName} (${advisorChatCounts[0].count} chats) (POR TRABAJAR)`);
 
-        // Start tracking metrics for this conversation
-        const metricId = `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        metricsTracker.startConversation(metricId, chat.id, leastBusyAdvisorId, {
-          queueId: chat.queueId || undefined,
-          channelType: chat.channel as any,
-          channelId: chat.channelConnectionId || undefined,
-        });
+        // METRICS ONLY: Detect if chat came from another advisor (Asesor → Cola → Asesor)
+        if (chat.transferredFrom) {
+          // Register as transfer in metrics (Trans OUT for previous, Trans IN for new)
+          console.log(`[QueueDistributor METRICS] 📊 Transfer detected: ${chat.transferredFrom} → ${leastBusyAdvisorId}`);
+          await metricsTracker.transferConversation(chat.id, chat.transferredFrom, leastBusyAdvisorId, {
+            queueId: chat.queueId || null,
+          });
+        } else {
+          // Register as new assignment in metrics
+          const metricId = `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          metricsTracker.startConversation(metricId, chat.id, leastBusyAdvisorId, {
+            queueId: chat.queueId || undefined,
+            channelType: chat.channel as any,
+            channelId: chat.channelConnectionId || undefined,
+          });
+        }
 
         // Create system message for automatic assignment
         const timestamp = formatEventTimestamp();

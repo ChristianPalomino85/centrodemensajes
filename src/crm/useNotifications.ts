@@ -46,8 +46,8 @@ export function useNotifications(messages: Message[], options: NotificationOptio
 
       const notification = new Notification(title, {
         body,
-        icon: "/icon-192x192.png", // Add your app icon here
-        badge: "/icon-192x192.png",
+        icon: "/favicon.svg",
+        badge: "/favicon.svg",
         tag: msg.id, // Prevent duplicate notifications
         requireInteraction: false,
       });

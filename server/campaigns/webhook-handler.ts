@@ -6,6 +6,8 @@
  */
 
 import { campaignStorage } from './storage';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 interface WhatsAppStatus {
   id: string; // message_id
@@ -71,6 +73,23 @@ export class CampaignWebhookHandler {
         const recipientPhone = status.recipient_id;
 
         console.log(`[CampaignWebhook] Status update: messageId=${messageId}, status=${newStatus}, phone=${recipientPhone}`);
+
+        // Persist raw webhook status to log file for audit/backfill
+        try {
+          const logDir = path.join(process.cwd(), 'logs');
+          await fs.mkdir(logDir, { recursive: true });
+          const logLine = JSON.stringify({
+            ts: Date.now(),
+            messageId,
+            status: newStatus,
+            phone: recipientPhone,
+            timestamp: status.timestamp,
+            errors: status.errors,
+          }) + '\n';
+          await fs.appendFile(path.join(logDir, 'campaign-webhooks.log'), logLine, 'utf8');
+        } catch (logErr) {
+          console.error('[CampaignWebhook] Failed to log status to file:', logErr);
+        }
 
         // Find which campaign this message belongs to
         const campaign = await this.findCampaignByMessageId(messageId, recipientPhone);

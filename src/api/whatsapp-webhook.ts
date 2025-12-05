@@ -269,6 +269,7 @@ export class WhatsAppWebhookHandler {
 
   /**
    * Process grouped messages - combine text from all messages and send to agent once
+   * ENHANCED: Handles multiple images + text combinations
    */
   private async processGroupedMessages(
     entryId: string,
@@ -278,8 +279,9 @@ export class WhatsAppWebhookHandler {
   ): Promise<void> {
     console.log(`[processGroupedMessages] Processing ${messages.length} messages`);
 
-    // Combine all text messages into a single message
+    // Separate images and text messages - NOW CAPTURES ALL IMAGES
     const textParts: string[] = [];
+    const imageMessages: WhatsAppMessage[] = [];
     let lastMessage = messages[messages.length - 1]; // Use last message metadata
 
     for (const msg of messages) {
@@ -293,19 +295,85 @@ export class WhatsAppWebhookHandler {
         }
       } else if (msg.type === 'button' && msg.button?.text) {
         textParts.push(msg.button.text);
+      } else if (msg.type === 'image' && msg.image) {
+        // Capture ALL images
+        imageMessages.push(msg);
+        console.log(`[processGroupedMessages] 📷 Found image ${imageMessages.length} with id:`, msg.image.id);
+        // Also add image caption if present
+        if (msg.image.caption) {
+          textParts.push(msg.image.caption);
+        }
       }
     }
 
-    // If no text messages found, process last message normally
+    console.log(`[processGroupedMessages] Found ${imageMessages.length} images and ${textParts.length} text parts`);
+
+    // CASE 1: Multiple images - process each one sequentially
+    if (imageMessages.length > 1) {
+      console.log(`[processGroupedMessages] 📷📷 Processing ${imageMessages.length} images sequentially`);
+
+      // Add context text to first image only
+      const combinedCaption = textParts.length > 0 ? textParts.join('\n') : '';
+
+      for (let i = 0; i < imageMessages.length; i++) {
+        const imgMsg = imageMessages[i];
+        const isFirst = i === 0;
+        const imageNum = i + 1;
+
+        // Create message with context (only for first image) or image number indicator
+        const caption = isFirst && combinedCaption
+          ? `[Imagen ${imageNum} de ${imageMessages.length}]\n${combinedCaption}`
+          : `[Imagen ${imageNum} de ${imageMessages.length}]`;
+
+        const imageWithCaption: WhatsAppMessage = {
+          ...imgMsg,
+          image: {
+            ...imgMsg.image!,
+            caption: caption,
+          },
+        };
+
+        console.log(`[processGroupedMessages] 📷 Processing image ${imageNum}/${imageMessages.length}`);
+        await this.processSingleMessage(entryId, value, imageWithCaption, resolution);
+      }
+      return;
+    }
+
+    // CASE 2: Single image + Text - combine image with text as caption
+    if (imageMessages.length === 1 && textParts.length > 0) {
+      const combinedCaption = textParts.join('\n');
+      console.log(`[processGroupedMessages] 📷+💬 Image + Text detected. Caption: "${combinedCaption.substring(0, 50)}..."`);
+
+      // Create combined message: image with all text as caption
+      const combinedMessage: WhatsAppMessage = {
+        ...imageMessages[0],
+        image: {
+          ...imageMessages[0].image!,
+          caption: combinedCaption, // Add all text as caption
+        },
+      };
+
+      await this.processSingleMessage(entryId, value, combinedMessage, resolution);
+      return;
+    }
+
+    // CASE 3: Single image only - process as-is
+    if (imageMessages.length === 1 && textParts.length === 0) {
+      console.log('[processGroupedMessages] 📷 Single image only, processing as-is');
+      await this.processSingleMessage(entryId, value, imageMessages[0], resolution);
+      return;
+    }
+
+    // CASE 4: No text and no image - process last message normally
     if (textParts.length === 0) {
       console.log('[processGroupedMessages] No text messages to group, processing last message');
       await this.processSingleMessage(entryId, value, lastMessage, resolution);
       return;
     }
 
-    // Combine all text with newlines
+    // CASE 5: Text only - combine all text messages
     const combinedText = textParts.join('\n');
-    console.log(`[processGroupedMessages] Combined ${messages.length} messages into one: "${combinedText.substring(0, 100)}..."`);
+    console.log(`[processGroupedMessages] 💬 Combined ${messages.length} text messages: "${combinedText.substring(0, 100)}..."`);
 
     // Create a synthetic WhatsApp message with combined text
     const combinedMessage: WhatsAppMessage = {
@@ -327,6 +395,11 @@ export class WhatsAppWebhookHandler {
     message: WhatsAppMessage,
     resolution: FlowResolution
   ): Promise<void> {
+    // CRITICAL FIX: Extract phoneNumberId from value metadata to pass through the chain
+    // This prevents race condition where concurrent messages overwrite this.currentPhoneNumberId
+    const messagePhoneNumberId = value.metadata?.phone_number_id;
+    console.log('[processSingleMessage] 🔑 Extracted phoneNumberId from message:', messagePhoneNumberId);
+
     console.log('[processSingleMessage] Converting message to runtime format...');
     const incoming = await convertMessageToRuntime(message);
     console.log('[processSingleMessage] 📤 Converted message:', JSON.stringify(incoming, null, 2));
@@ -352,7 +425,8 @@ export class WhatsAppWebhookHandler {
     // Send responses sequentially with small delay to prevent out-of-order delivery
     for (let i = 0; i < result.responses.length; i++) {
       const response = result.responses[i];
-      await this.dispatchOutbound(resolution.contactId, response, message.from);
+      // CRITICAL FIX: Pass messagePhoneNumberId to prevent race condition
+      await this.dispatchOutbound(resolution.contactId, response, message.from, messagePhoneNumberId);
 
       // Add 300ms delay between messages to ensure correct order (except for last message)
       if (i < result.responses.length - 1) {
@@ -360,28 +434,28 @@ export class WhatsAppWebhookHandler {
       }
     }
 
-    // DISABLED: Transfer is already handled by the system message processor (lines 560-580)
-    // This was causing duplicate onBotTransfer calls and duplicate system messages
-    // if (result.shouldTransfer && result.transferQueue) {
-    //   console.log('[processSingleMessage] 🎯 IA Agent requested transfer to queue:', result.transferQueue);
-    //   if (this.onBotTransfer) {
-    //     console.log('[processSingleMessage] 📞 Calling onBotTransfer callback for IA Agent...');
-    //     await this.onBotTransfer({
-    //       phone: message.from,
-    //       phoneNumberId: this.currentPhoneNumberId,
-    //       queueId: result.transferQueue,
-    //       transferTarget: 'queue',
-    //       transferDestination: result.transferQueue,
-    //       flowId: this.currentFlowId,
-    //     });
-    //     console.log('[processSingleMessage] ✅ IA Agent transfer callback completed');
-    //   } else {
-    //     console.log('[processSingleMessage] ⚠️  No onBotTransfer callback registered - transfer will not be processed');
-    //   }
-    // }
+    // Handle transfer request from IA Agent
+    if (result.shouldTransfer && result.transferQueue) {
+      console.log('[processSingleMessage] 🎯 IA Agent requested transfer to queue:', result.transferQueue);
+      if (this.onBotTransfer) {
+        console.log('[processSingleMessage] 📞 Calling onBotTransfer callback for IA Agent...');
+        await this.onBotTransfer({
+          phone: message.from,
+          phoneNumberId: this.currentPhoneNumberId,
+          queueId: result.transferQueue,
+          transferTarget: 'queue',
+          transferDestination: result.transferQueue,
+          flowId: this.currentFlowId,
+        });
+        console.log('[processSingleMessage] ✅ IA Agent transfer callback completed');
+      } else {
+        console.log('[processSingleMessage] ⚠️  No onBotTransfer callback registered - transfer will not be processed');
+      }
+    }
 
     // Handle flow ended - call onFlowEnd callback to archive conversation
-    if (result.ended) {
+    // CRITICAL: Do NOT end flow if there's a pending transfer
+    if (result.ended && !result.shouldTransfer) {
       console.log('[processSingleMessage] 🏁 Flow ended - calling onFlowEnd callback');
       if (this.onFlowEnd) {
         await this.onFlowEnd({
@@ -393,6 +467,8 @@ export class WhatsAppWebhookHandler {
       } else {
         console.log('[processSingleMessage] ⚠️  No onFlowEnd callback registered');
       }
+    } else if (result.shouldTransfer) {
+      console.log('[processSingleMessage] 🔄 Transfer requested to queue:', result.transferQueue, '- NOT ending flow');
     }
   }
 
@@ -408,13 +484,18 @@ export class WhatsAppWebhookHandler {
     return this.apiConfig;
   }
 
-  private async dispatchOutbound(to: string, message: OutboundMessage, phone: string): Promise<void> {
+  // CRITICAL FIX: Added phoneNumberId parameter to prevent race condition
+  // Previously used this.currentPhoneNumberId which could be overwritten by concurrent messages
+  private async dispatchOutbound(to: string, message: OutboundMessage, phone: string, phoneNumberId?: string): Promise<void> {
+    // Use passed phoneNumberId or fall back to instance variable (for backward compatibility)
+    const effectivePhoneNumberId = phoneNumberId || this.currentPhoneNumberId;
     const apiConfig = await this.getActiveApiConfig();
 
     switch (message.type) {
       case "text": {
         // CRITICAL FIX: Use backend sendWhatsAppMessage instead of frontend sendTextMessage
-        await this.safeSendBackend(to, message.text, null, null, phone, message);
+        // Pass effectivePhoneNumberId to prevent race condition
+        await this.safeSendBackend(to, message.text, null, null, phone, message, effectivePhoneNumberId);
         return;
       }
       case "buttons": {
@@ -566,9 +647,10 @@ export class WhatsAppWebhookHandler {
 
           if (this.onBotTransfer) {
             console.log('[WhatsApp] 📞 Calling onBotTransfer callback...');
+            console.log('[WhatsApp] 🔑 Using phoneNumberId:', effectivePhoneNumberId, '(passed:', phoneNumberId, ', instance:', this.currentPhoneNumberId, ')');
             await this.onBotTransfer({
               phone: to,
-              phoneNumberId: this.currentPhoneNumberId,
+              phoneNumberId: effectivePhoneNumberId, // CRITICAL FIX: Use effective (passed) phoneNumberId
               queueId: queueId || null,
               transferTarget: transferTarget || "queue",
               transferDestination: transferDestination || "",
@@ -596,7 +678,7 @@ export class WhatsAppWebhookHandler {
             console.log('[WhatsApp] 📞 Calling onFlowEnd callback...');
             await this.onFlowEnd({
               phone: to,
-              phoneNumberId: this.currentPhoneNumberId,
+              phoneNumberId: effectivePhoneNumberId, // CRITICAL FIX: Use effective phoneNumberId
               flowId: this.currentFlowId,
             });
             console.log('[WhatsApp] ✅ onFlowEnd callback completed');
@@ -614,6 +696,7 @@ export class WhatsAppWebhookHandler {
   }
 
   // CRITICAL FIX: New method using backend WhatsApp function
+  // Added phoneNumberId parameter to prevent race condition
   private async safeSendBackend(
     to: string,
     text: string | undefined,
@@ -621,15 +704,18 @@ export class WhatsAppWebhookHandler {
     mediaType: "image" | "audio" | "video" | "document" | "sticker" | null,
     phone: string,
     message: OutboundMessage,
+    phoneNumberId?: string, // CRITICAL FIX: Pass phoneNumberId explicitly
   ): Promise<void> {
+    // Use passed phoneNumberId or fall back to instance variable
+    const effectivePhoneNumberId = phoneNumberId || this.currentPhoneNumberId;
     try {
-      console.log('[WhatsApp Backend] Sending message...', { phone, messageType: message.type });
+      console.log('[WhatsApp Backend] Sending message...', { phone, messageType: message.type, phoneNumberId: effectivePhoneNumberId });
       const result = await sendWhatsAppMessage({
         phone: to,
         text,
         mediaUrl,
         mediaType: mediaType ?? undefined,
-        channelConnectionId: this.currentPhoneNumberId, // Use current incoming phoneNumberId
+        channelConnectionId: effectivePhoneNumberId, // CRITICAL FIX: Use effective phoneNumberId
       });
       console.log('[WhatsApp Backend] Message sent. Result:', { ok: result.ok, status: result.status });
 
@@ -638,7 +724,7 @@ export class WhatsAppWebhookHandler {
         console.log('[WhatsApp Backend] Calling onBotMessage callback...');
         await this.onBotMessage({
           phone,
-          phoneNumberId: this.currentPhoneNumberId,
+          phoneNumberId: effectivePhoneNumberId, // CRITICAL FIX: Use effective phoneNumberId
           flowId: this.currentFlowId,
           message,
           result: { ok: result.ok, status: result.status },

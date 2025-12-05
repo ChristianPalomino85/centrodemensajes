@@ -252,11 +252,15 @@ export function createApiRoutes(options: ApiRoutesOptions): Router {
    */
   router.get("/stats", async (req, res) => {
     try {
-      const source = req.query.source as string;
+      const source = (req.query.source as string) ?? 'crm';
+      const channel = req.query.channel as string | undefined;
+      const phoneNumberId = req.query.phoneNumberId as string | undefined;
+      const startDate = req.query.startDate ? parseInt(req.query.startDate as string, 10) : undefined;
+      const endDate = req.query.endDate ? parseInt(req.query.endDate as string, 10) : undefined;
 
       if (source === 'crm') {
         // Get real CRM stats from database
-        const stats = await realtimeMetrics.getStats();
+        const stats = await realtimeMetrics.getStats({ channel, phoneNumberId, startDate, endDate });
         res.json(stats);
       } else {
         // Get bot flow stats (legacy)
@@ -276,11 +280,16 @@ export function createApiRoutes(options: ApiRoutesOptions): Router {
    */
   router.get("/metrics", async (req, res) => {
     try {
-      const { sessionId, source } = req.query;
+      const { sessionId } = req.query;
+      const source = (req.query.source as string) ?? 'crm';
+      const channel = req.query.channel as string | undefined;
+      const phoneNumberId = req.query.phoneNumberId as string | undefined;
+      const startDate = req.query.startDate ? parseInt(req.query.startDate as string, 10) : undefined;
+      const endDate = req.query.endDate ? parseInt(req.query.endDate as string, 10) : undefined;
 
       if (source === 'crm') {
         // Get real CRM metrics from database
-        const metrics = await realtimeMetrics.getConversationMetrics();
+        const metrics = await realtimeMetrics.getConversationMetrics({ channel, phoneNumberId, startDate, endDate });
         res.json({ metrics });
       } else if (sessionId) {
         const metrics = metricsTracker.getMetrics(sessionId as string);
@@ -306,11 +315,15 @@ export function createApiRoutes(options: ApiRoutesOptions): Router {
    */
   router.get("/conversations/active", async (req, res) => {
     try {
-      const source = req.query.source as string;
+      const source = (req.query.source as string) ?? 'crm';
+      const channel = req.query.channel as string | undefined;
+      const phoneNumberId = req.query.phoneNumberId as string | undefined;
+      const startDate = req.query.startDate ? parseInt(req.query.startDate as string, 10) : undefined;
+      const endDate = req.query.endDate ? parseInt(req.query.endDate as string, 10) : undefined;
 
       if (source === 'crm') {
         // Get real CRM active conversations
-        const activeConversations = await realtimeMetrics.getActiveConversations();
+        const activeConversations = await realtimeMetrics.getActiveConversations({ channel, phoneNumberId, startDate, endDate });
         res.json({ conversations: activeConversations });
       } else {
         const activeConversations = metricsTracker.getActiveConversations();
@@ -330,7 +343,12 @@ export function createApiRoutes(options: ApiRoutesOptions): Router {
     try {
       // Import dynamically to avoid circular dependencies
       const { getMenuOptionStats } = await import("./menu-analytics-db");
-      const statsArray = await getMenuOptionStats();
+
+      // Parse date filters from query params
+      const startDate = req.query.startDate ? parseInt(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? parseInt(req.query.endDate as string) : undefined;
+
+      const statsArray = await getMenuOptionStats({ startDate, endDate });
       res.json({ stats: statsArray, total: statsArray.length });
     } catch (error) {
       console.error("[API] Menu stats error:", error);

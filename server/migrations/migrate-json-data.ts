@@ -5,7 +5,7 @@
  * from JSON files to PostgreSQL tables
  */
 
-import { readFile, writeFile, copyFile } from 'fs/promises';
+import { readFile, copyFile } from 'fs/promises';
 import { join } from 'path';
 import pg from 'pg';
 

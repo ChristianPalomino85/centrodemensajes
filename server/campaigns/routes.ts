@@ -5,8 +5,6 @@ import { sendTemplateMessage } from '../../src/api/whatsapp-sender';
 import { getWhatsAppEnv } from '../utils/env';
 import { crmDb } from '../crm/db-postgres';
 import { adminDb } from '../admin-db';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { requireSupervisor } from '../middleware/roles';
 
 import type { CrmRealtimeManager } from '../crm/ws';
@@ -402,7 +400,12 @@ async function sendCampaignMessages(campaign: Campaign): Promise<void> {
       );
 
       if (result.ok) {
-        await campaignStorage.updateMessageStatus(campaign.id, phone, 'sent');
+        // Try to extract messageId from WhatsApp response body
+        const messageId = (result.body as any)?.messages?.[0]?.id;
+
+        await campaignStorage.updateMessageStatus(campaign.id, phone, 'sent', {
+          messageId,
+        });
         console.log(`[Campaigns] Sent to ${phone} (${i + 1}/${eligibleRecipients.length})`);
 
         // Register message in CRM
@@ -412,7 +415,7 @@ async function sendCampaignMessages(campaign: Campaign): Promise<void> {
           if (!conversation) {
             // Get displayNumber from whatsapp_connections with ROBUST fallback
             const whatsappNumbers = await adminDb.getAllWhatsAppNumbers();
-            const connectionConfig = whatsappNumbers.find(num => num.phoneNumberId === campaign.whatsappNumberId);
+            const connectionConfig = whatsappNumbers.find(num => num.numberId === campaign.whatsappNumberId);
 
             // ROBUST: Multiple fallbacks to ensure displayNumber is ALWAYS set
             let displayNumber = connectionConfig?.phoneNumber || null;

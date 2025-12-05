@@ -81,6 +81,19 @@ export class QueueAssignmentService {
     try {
       console.log(`[QueueAssignment] 👤 Asesor ${advisorId} está ONLINE - buscando chats pendientes`);
 
+      // 🐛 FIX #1: Verificar que REALMENTE está ONLINE (no deslogueado)
+      if (!advisorPresence.isOnline(advisorId)) {
+        console.log(`[QueueAssignment] ⚠️  Asesor ${advisorId} NO está online (deslogueado) - NO asignar chats`);
+        return;
+      }
+
+      // 🐛 FIX #2: Verificar que el asesor PUEDE recibir chats (no está en refrigerio, pausa, etc.)
+      const canReceive = await this.canAdvisorReceiveChats(advisorId);
+      if (!canReceive) {
+        console.log(`[QueueAssignment] ⚠️  Asesor ${advisorId} está online pero NO DISPONIBLE (refrigerio/pausa) - NO asignar chats`);
+        return;
+      }
+
       // 1. Obtener colas del asesor
       const queues = await adminDb.getAllQueues();
       const advisorQueues = queues.filter(q =>
