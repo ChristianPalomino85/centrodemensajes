@@ -38,8 +38,14 @@ function normalizeTextResponse(text: string): string {
  */
 function loadSystemPrompt(): string {
   const promptPath = path.join(process.cwd(), 'data', 'system-prompt-final.txt');
+  const fallbackPrompt = 'Eres un asistente virtual útil de Azaleia Perú. Tu objetivo es ayudar a promotoras y clientes a comprar calzado.';
 
   try {
+    if (!fs.existsSync(promptPath)) {
+      console.warn('[Agent] ⚠️ System prompt file not found:', promptPath);
+      return fallbackPrompt;
+    }
+
     const stats = fs.statSync(promptPath);
     const mtime = stats.mtimeMs;
 
@@ -50,10 +56,10 @@ function loadSystemPrompt(): string {
       console.log(`[Agent] 📄 System prompt loaded from file (${cachedSystemPrompt.length} chars)`);
     }
 
-    return cachedSystemPrompt;
+    return cachedSystemPrompt || fallbackPrompt;
   } catch (error) {
     console.error('[Agent] ⚠️ Could not load system prompt from file:', error);
-    return 'Eres un asistente virtual útil.';
+    return fallbackPrompt;
   }
 }
 
@@ -114,10 +120,6 @@ async function detectAndTrackKeywords(
         customerPhone: '',  // Will be added from context if available
         conversationId: conversationId,
       });
-    }
-
-    if (detectedKeywords.length > 0) {
-      console.log(`[Agent Keywords] Registered ${detectedKeywords.length} keywords for conversation ${conversationId}`);
     }
 
     return detectedKeywords;
@@ -182,7 +184,6 @@ export async function executeAgent(
 
     try {
       // Get business WhatsApp number from multiple sources
-      // The phoneNumberId is stored in the session ID format: whatsapp_CUSTOMER_PHONENUMBERID
       const phoneNumberId = session.variables?.['phoneNumberId'] ||
                            session.id?.split('_')[2] || // Extract from session ID
                            '';
@@ -195,7 +196,7 @@ export async function executeAgent(
       // Get customer phone for Bitrix lookup
       const customerPhone = session.contactId || '';
 
-      console.log(`[Agent] 📱 Business phone: ${businessPhone}, PhoneNumberId: ${phoneNumberId}, Customer: ${customerPhone}, SessionId: ${session.id}`);
+      console.log(`[Agent] 📱 Business phone: ${businessPhone}, PhoneNumberId: ${phoneNumberId}, Customer: ${customerPhone}`);
 
       // Get business context based on WhatsApp number
       businessContext = getBusinessContext(businessPhone);
@@ -208,7 +209,6 @@ export async function executeAgent(
       }
 
       // Build full context including conversation history from CRM
-      // This provides the AI with recent message history for better context
       personalizedContext = await buildFullContext(
         businessContext,
         contactContext,
@@ -216,10 +216,6 @@ export async function executeAgent(
         isFirstMessage,
         isImage && !userMessage // Image without text
       );
-
-      if (!isFirstMessage) {
-        console.log(`[Agent] 📜 Added conversation history from CRM database`);
-      }
     } catch (error) {
       console.error('[Agent] ⚠️ Error building personalized context:', error);
     }
@@ -251,8 +247,6 @@ export async function executeAgent(
             // Determine mime type from file extension or metadata
             const mimeType = message.mediaType || 'image/jpeg';
             imageDataUrl = `data:${mimeType};base64,${base64Image}`;
-
-            console.log('[Agent] ✅ Converted local image to base64 (size:', imageBuffer.length, 'bytes)');
           }
           // Handle /api/crm/attachments/:id URLs (internal CRM attachments)
           else if (message.mediaUrl && message.mediaUrl.startsWith('/api/crm/attachments/')) {
@@ -262,7 +256,6 @@ export async function executeAgent(
 
             // Extract attachment ID from URL
             const attachmentId = message.mediaUrl.replace('/api/crm/attachments/', '').split('?')[0];
-            console.log('[Agent] 📁 Looking up CRM attachment:', attachmentId);
 
             // Search in data/uploads/YEAR/MONTH/ directories
             const uploadRoot = path.join(process.cwd(), 'data/uploads');
@@ -296,25 +289,17 @@ export async function executeAgent(
             if (foundFile) {
               const imageBuffer = await fs.readFile(foundFile);
               const base64Image = imageBuffer.toString('base64');
-
-              // Detect mime type from file extension
               const ext = path.extname(foundFile).toLowerCase().replace('.', '');
               const mimeTypes: Record<string, string> = {
                 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
                 'gif': 'image/gif', 'webp': 'image/webp', 'bmp': 'image/bmp'
               };
               const mimeType = mimeTypes[ext] || message.mediaType || 'image/jpeg';
-
               imageDataUrl = `data:${mimeType};base64,${base64Image}`;
-              console.log('[Agent] ✅ Loaded CRM attachment (size:', imageBuffer.length, 'bytes, file:', foundFile, ')');
-            } else {
-              console.error('[Agent] ❌ CRM attachment not found:', attachmentId);
             }
           }
           // Handle remote images (http/https URLs)
           else if (message.mediaUrl && (message.mediaUrl.startsWith('http://') || message.mediaUrl.startsWith('https://'))) {
-            console.log('[Agent] 📥 Downloading remote image:', message.mediaUrl);
-
             const https = await import('https');
             const http = await import('http');
             const { URL } = await import('url');
@@ -328,20 +313,16 @@ export async function executeAgent(
                   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 }
               }, (response) => {
-                // Handle redirects
                 if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
                   const redirectUrl = response.headers.location;
-                  console.log(`[Agent] 🔄 Following redirect to: ${redirectUrl}`);
                   const redirectClient = redirectUrl.startsWith('https:') ? https : http;
                   redirectClient.get(redirectUrl, {
-                    headers: {
-                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    }
-                  }, (redirectResponse) => {
+                    headers: { 'User-Agent': 'Mozilla/5.0' }
+                  }, (res) => {
                     const chunks: Buffer[] = [];
-                    redirectResponse.on('data', (chunk: Buffer) => chunks.push(chunk));
-                    redirectResponse.on('end', () => resolve(Buffer.concat(chunks)));
-                    redirectResponse.on('error', reject);
+                    res.on('data', (chunk: Buffer) => chunks.push(chunk));
+                    res.on('end', () => resolve(Buffer.concat(chunks)));
+                    res.on('error', reject);
                   }).on('error', reject);
                   return;
                 }
@@ -365,17 +346,13 @@ export async function executeAgent(
             });
 
             const base64Image = imageBuffer.toString('base64');
-
-            // Detect mime type from URL extension
             const ext = message.mediaUrl.split('.').pop()?.toLowerCase().split('?')[0] || 'jpg';
             const mimeTypes: Record<string, string> = {
               'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
               'gif': 'image/gif', 'webp': 'image/webp', 'bmp': 'image/bmp'
             };
             const mimeType = mimeTypes[ext] || message.mediaType || 'image/jpeg';
-
             imageDataUrl = `data:${mimeType};base64,${base64Image}`;
-            console.log('[Agent] ✅ Downloaded and converted remote image (size:', imageBuffer.length, 'bytes)');
           }
         } catch (error) {
           console.error('[Agent] ❌ Error converting image to base64:', error);
@@ -385,7 +362,6 @@ export async function executeAgent(
         // Store current image for tool execution (e.g., extract_handwritten_order)
         if (imageDataUrl.startsWith('data:')) {
           currentImageBase64 = imageDataUrl;
-          console.log('[Agent] 📷 Stored image for tool execution');
         }
 
         messageContent = [
@@ -415,10 +391,7 @@ export async function executeAgent(
       });
 
       // 🔐 AUTO-CHECK OPT-IN: Always check on first message of conversation
-      // Use the isFirstMessage flag calculated earlier (line 158)
-      // Reset the flag if this is the first message (new conversation)
       if (isFirstMessage && session.variables?.optInChecked) {
-        console.log('[Agent] 🔄 First message detected - resetting optInChecked flag');
         session.variables.optInChecked = false;
       }
 
@@ -426,14 +399,10 @@ export async function executeAgent(
       const hasCheckedOptIn = session.variables?.optInChecked === true;
 
       if (!hasCheckedOptIn) {
-        console.log('[Agent] 🔐 Opt-in not yet checked - forcing verificar_opt_in');
         try {
           const { executeTool } = await import('./tools/executor');
           const toolCall = {
-            function: {
-              name: 'verificar_opt_in',
-              arguments: '{}'
-            }
+            function: { name: 'verificar_opt_in', arguments: '{}' }
           };
           const toolContext = {
             phone: session.contactId || '',
@@ -444,8 +413,6 @@ export async function executeAgent(
           };
           const optInResult = await executeTool(toolCall as any, toolContext);
 
-          console.log('[Agent] 🔐 Opt-in check result:', JSON.stringify(optInResult, null, 2));
-
           // Mark as checked
           if (!session.variables) session.variables = {};
           session.variables.optInChecked = true;
@@ -453,7 +420,6 @@ export async function executeAgent(
           // If opt-in is needed, the tool already sent the buttons
           // Return immediately with those messages
           if (optInResult.messages && optInResult.messages.length > 0) {
-            console.log('[Agent] 🔐 Opt-in needed - returning buttons immediately');
             return {
               responses: optInResult.messages,
               shouldTransfer: false,
@@ -465,8 +431,7 @@ export async function executeAgent(
         }
       }
 
-      // 🔄 AUTO-DETECT TRANSFER REQUEST: Force tool calls when promotor/lider requests pedido
-      // Get contact type from personalized context
+      // 🔄 AUTO-DETECT TRANSFER REQUEST
       const contactType = contactContext?.contactType;
       const isValidatedPromotora = session.variables?.__promotoraValidated === true;
       const isPromoterOrLeader = contactType === 'promotor' || contactType === 'lider' || isValidatedPromotora;
@@ -531,9 +496,6 @@ export async function executeAgent(
       const shouldForceTransfer = hasOrderKeyword || promotoraSalesIntent || isExplicitTransferRequest || hasSupportKeyword;
 
       if (shouldForceTransfer) {
-        console.log('[Agent] 🔄 FORCED TRANSFER DETECTED - Client requesting:', userMessage);
-        console.log(`[Agent] 🔄 Contact type: ${contactType}, isPromoter: ${isPromoterOrLeader}, explicitTransfer: ${isExplicitTransferRequest}`);
-
         try {
           const { executeTool } = await import('./tools/executor');
 
@@ -558,7 +520,6 @@ export async function executeAgent(
           }
 
           // If sales intent and promotora no validada, intenta validar antes de transferir
-          let promotoraVerifiedForThisMessage = isPromoterOrLeader;
           if ((hasOrderKeyword || promotoraSalesIntent) && !isPromoterOrLeader) {
             console.log('[Agent] 🔎 Attempting promotora validation before transfer');
             const validateCall = {
@@ -575,7 +536,7 @@ export async function executeAgent(
             const validateResult = await executeTool(validateCall as any, validateContext);
             if (validateResult?.messages && validateResult.messages.length > 0) {
               // If tool already asked for DNI/RUC, return those messages and stop here
-              responses.push(...validateResult.messages);
+              const responses = validateResult.messages;
               // Persist promotora flag if found
               if (validateResult.result?.found) {
                 session.variables = session.variables || {};
@@ -584,9 +545,7 @@ export async function executeAgent(
                 session.variables.__promotoraNombre = validateResult.result.nombre;
                 session.variables.__promotoraDocumento = validateResult.result.documento;
                 session.variables.__promotoraValidatedAt = Date.now();
-                promotoraVerifiedForThisMessage = true;
               }
-              console.log('[Agent] 🔎 Validation response sent, skipping forced transfer until user replies');
               return { responses, shouldTransfer: false };
             }
             if (validateResult?.result?.found) {
@@ -596,8 +555,6 @@ export async function executeAgent(
               session.variables.__promotoraNombre = validateResult.result.nombre;
               session.variables.__promotoraDocumento = validateResult.result.documento;
               session.variables.__promotoraValidatedAt = Date.now();
-              promotoraVerifiedForThisMessage = true;
-              console.log('[Agent] 🔎 Promotora validated during forced transfer');
             }
           }
 
@@ -610,25 +567,20 @@ export async function executeAgent(
           };
 
           // STEP 1: Force check_business_hours
-          console.log(`[Agent] 🔄 Step 1: Forcing check_business_hours with queue_type=${queueType}`);
           const checkHoursCall = {
             function: { name: 'check_business_hours', arguments: JSON.stringify({ queue_type: queueType }) },
             id: 'forced_check_hours'
           };
           const hoursResult = await executeTool(checkHoursCall as any, toolContext);
-          console.log('[Agent] 🔄 Step 1 Result:', JSON.stringify(hoursResult, null, 2));
 
           // STEP 2: Force transfer_to_queue
-          console.log(`[Agent] 🔄 Step 2: Forcing transfer_to_queue with queue_type=${queueType}`);
           const transferCall = {
             function: { name: 'transfer_to_queue', arguments: JSON.stringify({ queue_type: queueType }) },
             id: 'forced_transfer'
           };
           const transferResult = await executeTool(transferCall as any, toolContext);
-          console.log('[Agent] 🔄 Step 2 Result:', JSON.stringify(transferResult, null, 2));
 
           // STEP 3: Inject tool results into conversation history and let OpenAI generate natural response
-          // Add fake assistant message with tool calls
           conversationHistory.push({
             role: 'assistant',
             content: null,
@@ -651,9 +603,6 @@ export async function executeAgent(
             name: 'transfer_to_queue',
             content: JSON.stringify(transferResult.result)
           });
-
-          // Mark that we've forced the transfer tools so OpenAI just needs to respond naturally
-          console.log('[Agent] 🔄 Injected tool results into history, letting OpenAI generate natural response');
 
           // Store transfer info for later
           session.variables = session.variables || {};
@@ -696,16 +645,6 @@ export async function executeAgent(
           referralThumbnailUrl: referralData?.thumbnail_url,
           ctwaClid: referralData?.ctwa_clid,
         });
-
-        // Log referral data if present
-        if (referralData) {
-          console.log(`[Agent] 🎯 Referral data detected:`, {
-            source_type: referralData.source_type,
-            source_id: referralData.source_id,
-            headline: referralData.headline,
-            ctwa_clid: referralData.ctwa_clid,
-          });
-        }
       }
     }
 
@@ -723,11 +662,7 @@ export async function executeAgent(
           if (topMatch.similarity > 0.60) {
             const catalogName = topMatch.catalog.includes('OLYMPIKUS') ? 'Olympikus' :
                                topMatch.catalog.includes('AZALEIA') ? 'Azaleia' : topMatch.catalog;
-            const allPages = visualResults.results
-              .filter(r => r.similarity > 0.60)
-              .map(r => r.page_number)
-              .join(', ');
-            console.log(`[Agent] 🎯 Visual matches: ${catalogName} páginas ${allPages} (top: ${(topMatch.similarity * 100).toFixed(1)}%)`);
+            console.log(`[Agent] 🎯 Visual matches: ${catalogName} (top: ${(topMatch.similarity * 100).toFixed(1)}%)`);
           }
 
           // 🔬 VERIFICATION: Use GPT-4 Vision to identify exact product
