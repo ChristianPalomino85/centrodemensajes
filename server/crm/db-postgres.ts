@@ -738,16 +738,26 @@ export class PostgresCRMDatabase {
 
   /**
    * List queued conversations (uses idx_conv_queue_status)
+   * Optimized to filter by specific queue and unassigned status directly in DB
    */
-  async listQueuedConversations(): Promise<Conversation[]> {
+  async listQueuedConversations(queueId?: string): Promise<Conversation[]> {
     try {
-      const result = await pool.query(
-        `SELECT ${CONVERSATION_COLUMNS}
+      let query = `SELECT ${CONVERSATION_COLUMNS}
          FROM crm_conversations
          WHERE queue_id IS NOT NULL
            AND status = 'active'
-         ORDER BY queued_at ASC NULLS LAST`
-      );
+           AND assigned_to IS NULL`; // Only get unassigned chats
+
+      const params: any[] = [];
+
+      if (queueId) {
+        query += ` AND queue_id = $1`;
+        params.push(queueId);
+      }
+
+      query += ` ORDER BY queued_at ASC NULLS LAST`;
+
+      const result = await pool.query(query, params);
 
       return result.rows.map(row => this.rowToConversation(row));
     } catch (error) {
