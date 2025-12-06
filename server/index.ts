@@ -55,6 +55,7 @@ import templateCreatorRouter from "./routes/template-creator";
 import userProfileRouter from "./routes/user-profile";
 import ticketsRouter from "./routes/tickets";
 import maintenanceRouter from "./routes/maintenance";
+import channelConfigRouter from "./routes/channel-config";
 import { createMetricsRouter } from "./crm/routes/metrics";
 import { createSalesConversionsRouter } from "./crm/routes/sales-conversions";
 import quickActionsRouter from "./crm/routes/quick-actions";
@@ -1486,6 +1487,9 @@ app.use("/api/tickets", requireAuth, ticketsRouter);
 
 // Maintenance alerts routes - PROTEGIDAS CON AUTH
 app.use("/api/maintenance", requireAuth, maintenanceRouter);
+
+// Channel Config routes (Instagram, Facebook, WhatsApp, Bitrix) - PROTEGIDAS CON AUTH
+app.use("/api/channel-config", requireAuth, channelConfigRouter);
 
 // Campaigns routes - PROTEGIDAS CON AUTH
 app.use("/api/campaigns", requireAuth, createCampaignsRouter(crmSocketManager));

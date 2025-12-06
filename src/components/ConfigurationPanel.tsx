@@ -8,6 +8,7 @@ import { StatusManagement } from "./Configuration/StatusManagement";
 import { WhatsAppNumbersPanel } from "./WhatsAppNumbersPanel";
 import { WhatsAppConfigContent } from "./WhatsAppConfig";
 import { Bitrix24Panel } from "./Bitrix24Panel";
+import { SocialChannelsPanel } from "./SocialChannelsPanel";
 import { AIConfig } from "./Configuration/AIConfig";
 import { IAAgentConfig } from "./Configuration/IAAgentConfig";
 import { BotConfig } from "./Configuration/BotConfig";
@@ -15,7 +16,7 @@ import { AdvisorStats } from "./Configuration/AdvisorStats";
 import { MaintenanceControlPanel } from "./MaintenanceAlert";
 import type { WhatsAppNumberAssignment } from "../flow/types";
 
-type ConfigSection = "users" | "roles" | "queues" | "crm-fields" | "whatsapp" | "bitrix24" | "ai" | "ia-agent" | "statuses" | "general" | "bot" | "advisor-stats" | "maintenance";
+type ConfigSection = "users" | "roles" | "queues" | "crm-fields" | "whatsapp" | "bitrix24" | "social-channels" | "ai" | "ia-agent" | "statuses" | "general" | "bot" | "advisor-stats" | "maintenance";
 
 interface ConfigurationPanelProps {
   whatsappNumbers?: WhatsAppNumberAssignment[];
@@ -190,6 +191,27 @@ export function ConfigurationPanel({ whatsappNumbers = [], onUpdateWhatsappNumbe
                 />
               </svg>
               Bitrix24 CRM
+            </button>
+          )}
+
+          {shouldShowSection("social-channels") && (
+            <button
+              onClick={() => setActiveSection("social-channels")}
+              className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-semibold transition ${
+                activeSection === "social-channels"
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"
+                />
+              </svg>
+              Canales Sociales
             </button>
           )}
 
@@ -394,6 +416,7 @@ export function ConfigurationPanel({ whatsappNumbers = [], onUpdateWhatsappNumbe
             <Bitrix24Panel />
           </div>
         )}
+        {activeSection === "social-channels" && <SocialChannelsPanel />}
         {activeSection === "ai" && (
           <div className="p-6">
             <AIConfig />
