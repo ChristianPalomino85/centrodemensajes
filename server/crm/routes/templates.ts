@@ -5,7 +5,7 @@ import { crmDb } from "../db-postgres";
 import type { CrmRealtimeManager } from "../ws";
 import { getWhatsAppCredentials, getWhatsAppConnection } from "../../services/whatsapp-connections";
 import { registerTemplateUsage } from "../template-usage-tracker";
-import { adminDb } from "../../admin-db-postgres";
+import { adminDb } from "../../admin-db";
 import { formatEventTimestamp } from "../../utils/file-logger";
 
 export function createTemplatesRouter(socketManager: CrmRealtimeManager) {

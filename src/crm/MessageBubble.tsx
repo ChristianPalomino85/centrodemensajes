@@ -37,7 +37,8 @@ const DEFAULT_THEME: ChatTheme = {
 };
 
 export default function MessageBubble({ message, attachments, repliedTo, repliedAttachments, onReply, onScrollToMessage }: MessageBubbleProps) {
-  const isOutgoing = message.direction === "outgoing";
+  const isOutgoing = message.direction === "outgoing" || message.direction === "out";
+  const isSystem = message.direction === "system" || message.type === "event";
   const [theme, setTheme] = useState<ChatTheme>(DEFAULT_THEME);
 
   // Load theme preferences on mount
@@ -141,13 +142,38 @@ export default function MessageBubble({ message, attachments, repliedTo, replied
   const buttons = metadata?.buttons || [];
   const menuOptions = metadata?.menuOptions || [];
 
+  // Render system messages differently
+  if (isSystem) {
+    return (
+      <div className="flex justify-center my-3" id={`message-${message.id}`}>
+        <div className="max-w-[80%] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2.5 text-center">
+          <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+            {displayText}
+          </p>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">
+            {new Date(message.createdAt).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Check if message has media URL but no attachments
+  const hasMediaUrl = message.mediaUrl || message.mediaThumb;
+  const shouldRenderMedia = attachments.length === 0 && hasMediaUrl;
+
   return (
     <div className={`flex ${alignment}`} id={`message-${message.id}`}>
       <div
         className={`max-w-[75%] rounded-xl px-3 py-2.5 ${bubbleBaseClasses} ${containerAlign} backdrop-blur-sm`}
         style={bubbleStyle}
       >
-        {/* Nombre del asesor/bot que envió (solo para mensajes salientes) */}
+        {/* Nombre del remitente */}
+        {!isOutgoing && (
+          <p className="text-[10px] font-semibold mb-1 opacity-90">
+            {message.sentBy || "Cliente"}
+          </p>
+        )}
         {isOutgoing && (
           <p className="text-[10px] font-semibold mb-1 opacity-90">
             {message.sentBy || "Bot"}
@@ -206,11 +232,60 @@ export default function MessageBubble({ message, attachments, repliedTo, replied
             ))}
           </div>
         )}
+        {/* Render attachments array */}
         {attachments.length > 0 && (
           <div className="mt-2 space-y-2">
             {attachments.map((attachment) => (
               <AttachmentPreview key={attachment.id} attachment={attachment} compact={false} />
             ))}
+          </div>
+        )}
+        {/* Render media from message.mediaUrl if no attachments */}
+        {shouldRenderMedia && (message.type === 'image' || message.type === 'sticker') && (
+          <div className="mt-2">
+            <img
+              src={message.mediaUrl || ''}
+              alt={displayText || 'Imagen'}
+              className="max-w-full rounded-lg border border-white/20"
+              style={{ maxHeight: '300px' }}
+            />
+          </div>
+        )}
+        {shouldRenderMedia && message.type === 'document' && (
+          <div className="mt-2 flex items-center gap-2 p-3 bg-black/5 rounded-lg border border-white/20">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium truncate">{displayText || 'Documento'}</p>
+              {metadata?.file_size && (
+                <p className="text-[10px] opacity-70">{Math.round(metadata.file_size / 1024)} KB</p>
+              )}
+            </div>
+            <a
+              href={message.mediaUrl || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs underline"
+            >
+              Abrir
+            </a>
+          </div>
+        )}
+        {shouldRenderMedia && message.type === 'location' && metadata?.latitude && (
+          <div className="mt-2 p-3 bg-black/5 rounded-lg border border-white/20">
+            <p className="text-xs font-medium mb-1">📍 Ubicación compartida</p>
+            {metadata.address && (
+              <p className="text-[10px] opacity-70">{metadata.address}</p>
+            )}
+            <a
+              href={`https://www.google.com/maps?q=${metadata.latitude},${metadata.longitude}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs underline mt-1 inline-block"
+            >
+              Ver en mapa
+            </a>
           </div>
         )}
         <div className={`mt-1.5 flex items-center gap-2 text-[10px] ${isOutgoing ? "text-white/70" : "text-slate-400"}`}>

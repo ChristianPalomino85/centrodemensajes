@@ -25,6 +25,7 @@ import { usePermissions } from "./hooks/usePermissions";
 import LoginPage from "./components/LoginPage";
 import WelcomeSplash from "./components/WelcomeSplash";
 import { LogOut, User, Bug, ListChecks } from "lucide-react";
+import { ThemeToggle } from "./components/ThemeToggle";
 import { AdvisorStatusButton } from "./crm/AdvisorStatusButton";
 import { AdvisorStatusPanel } from "./crm/AdvisorStatusPanel";
 import { createCrmSocket, type CrmSocket } from "./crm/socket";
@@ -2948,7 +2949,7 @@ export default function App(): JSX.Element {
 
   // Main application (only shown when authenticated and splash completed)
   return (
-    <div className="h-screen overflow-hidden flex flex-col bg-slate-50">
+    <div className="h-screen overflow-hidden flex flex-col bg-background transition-colors duration-300">
       {toast && (
         <div className="fixed bottom-6 right-6 z-40 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-xl text-sm font-medium ${toast.type === "success" ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"}`}>
@@ -2967,7 +2968,7 @@ export default function App(): JSX.Element {
         </div>
       )}
       {/* Compact Modern Header */}
-      <div className="bg-white border-b border-slate-200 px-3 py-1 flex-shrink-0">
+      <div className="bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b-2 border-slate-200 dark:border-slate-700 px-3 py-1 flex-shrink-0 transition-colors duration-300 shadow-md">
         <div className="flex flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-2 flex-wrap ml-2">
             {/* Animated Logo Carousel */}
@@ -3045,7 +3046,11 @@ export default function App(): JSX.Element {
             {/* Canvas tab - Oculto para GERENCIA */}
             {hasPermission('canvas.view') && userRoleName !== 'gerencia' && (
               <button
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'canvas' ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  mainTab === 'canvas'
+                    ? 'bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-white border border-slate-300 dark:border-slate-600'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:border dark:border-slate-700'
+                }`}
                 onClick={() => setMainTab('canvas')}
                 type="button"
               >
@@ -3055,7 +3060,11 @@ export default function App(): JSX.Element {
             {/* Chat - Visible para GERENCIA */}
             {hasPermission('crm.view') && (
               <button
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'crm' ? 'bg-green-200 text-green-700' : 'bg-green-100 text-green-600 hover:bg-green-200'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  mainTab === 'crm'
+                    ? 'bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-200 border border-green-300 dark:border-green-700'
+                    : 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-950 dark:text-green-400 dark:hover:bg-green-900 dark:border dark:border-green-800'
+                }`}
                 onClick={() => setMainTab('crm')}
                 type="button"
               >
@@ -3065,7 +3074,11 @@ export default function App(): JSX.Element {
             {/* Campañas - Oculto para GERENCIA */}
             {hasPermission('campaigns.view') && userRoleName !== 'gerencia' && (
               <button
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'campaigns' ? 'bg-red-200 text-red-700' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  mainTab === 'campaigns'
+                    ? 'bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-200 border border-red-300 dark:border-red-700'
+                    : 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900 dark:border dark:border-red-800'
+                }`}
                 onClick={() => setMainTab('campaigns')}
                 type="button"
               >
@@ -3075,7 +3088,11 @@ export default function App(): JSX.Element {
             {/* Plantillas - Oculto para GERENCIA */}
             {hasPermission('templates.view') && userRoleName !== 'gerencia' && (
               <button
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'templates' ? 'bg-purple-200 text-purple-700' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  mainTab === 'templates'
+                    ? 'bg-purple-200 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border border-purple-300 dark:border-purple-700'
+                    : 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:hover:bg-purple-900 dark:border dark:border-purple-800'
+                }`}
                 onClick={() => setMainTab('templates')}
                 type="button"
               >
@@ -3085,7 +3102,11 @@ export default function App(): JSX.Element {
             {/* Agenda - Oculto para GERENCIA */}
             {hasPermission('agenda.view') && userRoleName !== 'gerencia' && (
               <button
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'agenda' ? 'bg-blue-200 text-blue-700' : 'bg-blue-100 text-blue-600 hover:bg-blue-200'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  mainTab === 'agenda'
+                    ? 'bg-blue-200 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-300 dark:border-blue-700'
+                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:hover:bg-blue-900 dark:border dark:border-blue-800'
+                }`}
                 onClick={() => setMainTab('agenda')}
                 type="button"
               >
@@ -3095,7 +3116,11 @@ export default function App(): JSX.Element {
             {/* Asesores - Visible para GERENCIA */}
             {hasPermission('advisors.view') && (
               <button
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'advisors' ? 'bg-purple-200 text-purple-700' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  mainTab === 'advisors'
+                    ? 'bg-purple-200 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border border-purple-300 dark:border-purple-700'
+                    : 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:hover:bg-purple-900 dark:border dark:border-purple-800'
+                }`}
                 onClick={() => setMainTab('advisors')}
                 type="button"
               >
@@ -3105,7 +3130,11 @@ export default function App(): JSX.Element {
             {/* Métricas - Visible para GERENCIA */}
             {hasPermission('metrics.view') && (
               <button
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'metrics' ? 'bg-pink-200 text-pink-700' : 'bg-pink-100 text-pink-600 hover:bg-pink-200'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  mainTab === 'metrics'
+                    ? 'bg-pink-200 text-pink-800 dark:bg-pink-900 dark:text-pink-200 border border-pink-300 dark:border-pink-700'
+                    : 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-950 dark:text-pink-400 dark:hover:bg-pink-900 dark:border dark:border-pink-800'
+                }`}
                 onClick={() => setMainTab('metrics')}
                 type="button"
               >
@@ -3115,7 +3144,11 @@ export default function App(): JSX.Element {
             {/* Config - Oculto para GERENCIA */}
             {hasPermission('config.view') && userRoleName !== 'gerencia' && (
               <button
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'config' ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  mainTab === 'config'
+                    ? 'bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-white border border-slate-300 dark:border-slate-600'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:border dark:border-slate-700'
+                }`}
                 onClick={() => setMainTab('config')}
                 type="button"
               >
@@ -3125,7 +3158,11 @@ export default function App(): JSX.Element {
             {/* AI Reports - SOLO ADMIN */}
             {user && user.role === 'admin' && (
               <button
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mainTab === 'ai-reports' ? 'bg-purple-200 text-purple-700' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  mainTab === 'ai-reports'
+                    ? 'bg-purple-200 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border border-purple-300 dark:border-purple-700'
+                    : 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:hover:bg-purple-900 dark:border dark:border-purple-800'
+                }`}
                 onClick={() => setMainTab('ai-reports')}
                 type="button"
               >
@@ -3338,6 +3375,9 @@ export default function App(): JSX.Element {
             <AdvisorStatusButton userId={user.id} compact={true} />
           )}
 
+          {/* Theme Toggle - Dark Mode */}
+          <ThemeToggle />
+
           {/* Botón Perfil de Usuario - TODOS */}
           <button
             onClick={() => setShowUserProfile(true)}
@@ -3386,9 +3426,9 @@ export default function App(): JSX.Element {
       <div className="flex-1 overflow-hidden px-2 md:px-4 py-2">
       {mainTab === 'canvas' && hasPermission('canvas.view') && (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:items-start h-full">
-        <div className="order-2 lg:order-1 lg:col-span-9 lg:col-start-1 flex flex-col h-full">
-          <div className="bg-white flex-1 flex flex-col overflow-hidden">
-              <div className="px-3 py-2 bg-slate-50 text-sm font-semibold flex items-center gap-3 border-b flex-shrink-0">
+        <div className="order-2 lg:order-1 lg:col-span-9 lg:col-start-1 flex flex-col h-full relative">
+          <div className="app-card flex-1 flex flex-col overflow-hidden">
+              <div className="app-card-header flex items-center gap-3">
                 <span>Canvas de flujo</span>
                 <BotChannelAssignment
                   flowId={flow.id}
@@ -3425,9 +3465,9 @@ export default function App(): JSX.Element {
 
         <div className="order-1 lg:order-2 lg:col-span-3 lg:col-start-10 lg:self-start">
           <div className="flex flex-col gap-4 min-w-0">
-            <div className="border rounded-xl bg-white shadow-sm flex flex-col max-h-screen">
-              <div className="px-3 py-2 border-b text-sm font-semibold flex-shrink-0">Inspector</div>
-              <div className="p-3 space-y-3 text-sm overflow-y-auto flex-1">
+            <div className="app-card flex flex-col max-h-screen">
+              <div className="app-card-header">Inspector</div>
+              <div className="app-card-content space-y-3 text-sm overflow-y-auto flex-1">
                 <div className="text-xs text-slate-500">ID: {selected.id}</div>
                 <label className="block text-xs mb-1">Etiqueta</label>
                 <input className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300" value={selected.label} onChange={(e)=>updateSelected({ label:e.target.value })} />

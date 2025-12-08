@@ -42,13 +42,13 @@ export default function NodePalette({ onNodeCreate }: NodePaletteProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
-    <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-30 pointer-events-auto">
-      <div className={`bg-white rounded-xl shadow-2xl border border-slate-200 transition-all duration-300 ${isCollapsed ? 'pb-2' : 'pb-4'}`}>
+    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-30 pointer-events-auto">
+      <div className={`bg-card rounded-xl shadow-2xl border border-border transition-all duration-300 ${isCollapsed ? 'pb-2' : 'pb-4'}`}>
         {/* Toggle Button */}
         <div className="flex justify-center pt-2">
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="px-4 py-1 text-xs font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 transition-colors"
+            className="px-4 py-1 text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
             type="button"
           >
             {isCollapsed ? (
@@ -71,7 +71,7 @@ export default function NodePalette({ onNodeCreate }: NodePaletteProps) {
             <div className="flex gap-4">
               {/* ESTRUCTURA */}
               <div className="flex flex-col gap-2 min-w-[140px]">
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">ESTRUCTURA</div>
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">ESTRUCTURA</div>
                 {NODE_CATEGORIES.estructura.map(node => (
                   <button
                     key={node.type}
@@ -87,7 +87,7 @@ export default function NodePalette({ onNodeCreate }: NodePaletteProps) {
 
               {/* MENSAJES */}
               <div className="flex flex-col gap-2 min-w-[140px]">
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">MENSAJES</div>
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">MENSAJES</div>
                 {NODE_CATEGORIES.mensajes.map(node => (
                   <button
                     key={node.type}
@@ -103,7 +103,7 @@ export default function NodePalette({ onNodeCreate }: NodePaletteProps) {
 
               {/* INTEGRACIONES */}
               <div className="flex flex-col gap-2 min-w-[160px]">
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">INTEGRACIONES</div>
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">INTEGRACIONES</div>
                 {NODE_CATEGORIES.integraciones.map(node => (
                   <button
                     key={node.type}
@@ -119,7 +119,7 @@ export default function NodePalette({ onNodeCreate }: NodePaletteProps) {
 
               {/* LÓGICA */}
               <div className="flex flex-col gap-2 min-w-[170px]">
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">LÓGICA</div>
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">LÓGICA</div>
                 {NODE_CATEGORIES.logica.map(node => (
                   <button
                     key={node.type}
@@ -135,7 +135,7 @@ export default function NodePalette({ onNodeCreate }: NodePaletteProps) {
 
               {/* INTELIGENCIA ARTIFICIAL */}
               <div className="flex flex-col gap-2 min-w-[180px]">
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">INTELIGENCIA ARTIFICIAL</div>
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">INTELIGENCIA ARTIFICIAL</div>
                 {NODE_CATEGORIES.ia.map(node => (
                   <button
                     key={node.type}
@@ -151,7 +151,7 @@ export default function NodePalette({ onNodeCreate }: NodePaletteProps) {
 
               {/* CONTROL */}
               <div className="flex flex-col gap-2 min-w-[150px]">
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">CONTROL</div>
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">CONTROL</div>
                 {NODE_CATEGORIES.control.map(node => (
                   <button
                     key={node.type}

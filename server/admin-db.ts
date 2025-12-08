@@ -57,7 +57,7 @@ export interface WhatsAppNumber {
 
 class AdminDatabasePostgres {
   async getUsers(): Promise<User[]> {
-    const result = await pool.query('SELECT id, username, email, password, name, role, created_at, updated_at FROM users WHERE is_bot = false');
+    const result = await pool.query('SELECT id, username, email, password_hash as password, name, role, created_at, updated_at FROM crm_users');
     return result.rows.map(row => ({
       id: row.id,
       username: row.username,
@@ -65,13 +65,13 @@ class AdminDatabasePostgres {
       password: row.password,
       name: row.name,
       role: row.role,
-      createdAt: new Date(row.created_at).toISOString(),
-      updatedAt: new Date(row.updated_at).toISOString(),
+      createdAt: new Date(Number(row.created_at)).toISOString(),
+      updatedAt: new Date(Number(row.updated_at)).toISOString(),
     }));
   }
 
   async getUserById(id: string): Promise<User | null> {
-    const result = await pool.query('SELECT id, username, email, password, name, role, created_at, updated_at FROM users WHERE id = $1', [id]);
+    const result = await pool.query('SELECT id, username, email, password_hash as password, name, role, created_at, updated_at FROM crm_users WHERE id = $1', [id]);
     if (result.rows.length === 0) return null;
     const row = result.rows[0];
     return {
@@ -81,13 +81,13 @@ class AdminDatabasePostgres {
       password: row.password,
       name: row.name,
       role: row.role,
-      createdAt: new Date(row.created_at).toISOString(),
-      updatedAt: new Date(row.updated_at).toISOString(),
+      createdAt: new Date(Number(row.created_at)).toISOString(),
+      updatedAt: new Date(Number(row.updated_at)).toISOString(),
     };
   }
 
   async getUserByUsername(username: string): Promise<User | null> {
-    const result = await pool.query('SELECT id, username, email, password, name, role, created_at, updated_at FROM users WHERE username = $1', [username]);
+    const result = await pool.query('SELECT id, username, email, password_hash as password, name, role, created_at, updated_at FROM crm_users WHERE username = $1', [username]);
     if (result.rows.length === 0) return null;
     const row = result.rows[0];
     return {
@@ -97,8 +97,8 @@ class AdminDatabasePostgres {
       password: row.password,
       name: row.name,
       role: row.role,
-      createdAt: new Date(row.created_at).toISOString(),
-      updatedAt: new Date(row.updated_at).toISOString(),
+      createdAt: new Date(Number(row.created_at)).toISOString(),
+      updatedAt: new Date(Number(row.updated_at)).toISOString(),
     };
   }
 
